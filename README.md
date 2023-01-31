@@ -4,4 +4,5 @@
 [文档](https://ekit.gocn.vip/ecron/develop/guide/)
 
 ## 学习交流群
-<img width="387" alt="image" src="https://user-images.githubusercontent.com/9923838/208246277-e89ecc38-33ba-429d-ae97-a822a2f4b85b.png">
+![DF64E7AA-7789-444F-95CE-73061D163EC2](https://user-images.githubusercontent.com/9923838/215773391-7f13c13c-8c49-4430-a3e4-e3935c664acb.jpeg)
+

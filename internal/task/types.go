@@ -24,9 +24,14 @@ const (
 )
 
 type Config struct {
-	Name string
-	Cron string
-	Type Type
+	Name  string
+	Cron  string
+	Type  Type
+	Retry struct {
+		Need  bool
+		Count int
+	}
+	Executor []byte
 }
 
 type Task struct {
@@ -34,5 +39,6 @@ type Task struct {
 }
 
 type Event struct {
-	Type EventType
+	TaskName string
+	Type     EventType
 }

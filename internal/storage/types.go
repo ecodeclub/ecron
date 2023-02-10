@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+
 	"github.com/gotomicro/ecron/internal/task"
 )
 
@@ -11,10 +12,13 @@ const (
 	// EventTypePreempted 抢占了一个任务
 	EventTypePreempted = "preempted"
 	// EventTypeDeleted 某一个任务被删除了
-	EventTypeDeleted = "deleted"
+	EventTypeDeleted  = "deleted"
+	EventCreated      = "created"
+	EventTypeRunnable = "runnable"
+	EventTypeEnd      = "end"
 )
 
-type Storage interface {
+type Storager interface {
 	// Events
 	// ctx 结束的时候，Storage 也要结束
 	// 实现者需要处理 taskEvents
@@ -23,9 +27,11 @@ type Storage interface {
 }
 
 type TaskDAO interface {
-	Add(t *task.Task) error
-	Update(t *task.Task) error
-	Delete(name string) error
+	Get(ctx context.Context, name string) *task.Task
+	GetMulti(ctx context.Context, name string) []*task.Task
+	Add(ctx context.Context, t *task.Task) error
+	Update(ctx context.Context, t *task.Task, status map[string]string) error
+	Delete(ctx context.Context, name string) error
 }
 
 type Event struct {

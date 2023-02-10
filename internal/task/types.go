@@ -21,12 +21,14 @@ const (
 	EventTypeFailed = "failed"
 	// EventTypeSuccess 任务运行成功
 	EventTypeSuccess = "success"
+	EventTypeInit    = "init"
 )
 
 type Config struct {
-	Name string
-	Cron string
-	Type Type
+	Name       string
+	Cron       string
+	Type       Type
+	Parameters string
 }
 
 type Task struct {
@@ -34,5 +36,6 @@ type Task struct {
 }
 
 type Event struct {
+	Task
 	Type EventType
 }

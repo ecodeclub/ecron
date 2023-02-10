@@ -24,11 +24,15 @@ type Storage interface {
 
 type TaskDAO interface {
 	Add(t *task.Task) error
-	Update(t *task.Task) error
+	Update(t *task.Task, status map[string]string) error
 	Delete(name string) error
 }
 
 type Event struct {
 	Type EventType
 	Task *task.Task
+}
+
+func NewEvent(event Event) Event {
+	return Event{}
 }

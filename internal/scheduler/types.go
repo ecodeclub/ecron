@@ -14,6 +14,10 @@ import (
 
 type EventType string
 
+type Event struct {
+	Type EventType
+}
+
 const (
 	// EventTypeWaiting 等待当前正在执行的任务运行完成
 	EventTypeWaiting = "waiting"
@@ -169,7 +173,7 @@ Loop:
 	events := r.executor.Execute(r.task)
 	for e := range events {
 		se := scheduledEvent{task: r}
-		switch e {
+		switch e.Type {
 		case EventTypeWaiting:
 			se.t = task.EventTypeRunning
 			r.events <- se

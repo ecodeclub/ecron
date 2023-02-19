@@ -31,8 +31,12 @@ type Config struct {
 	Parameters string
 }
 
+// Task 实际上这个表示的是任务的执行信息
+// 通过TaskId关联任务详情ßßß
 type Task struct {
 	Config
+	TaskId int64
+	Epoch  int64
 }
 
 type Event struct {

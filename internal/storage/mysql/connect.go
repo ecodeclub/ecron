@@ -1,30 +1,26 @@
 package mysql
 
-import (
-	_ "github.com/go-sql-driver/mysql"
+import "time"
 
-	"github.com/gotomicro/eorm"
-)
-
-var db *eorm.DB
-
-func init() {
-	var err error
-	db, err = eorm.Open("mysql", "root:@tcp(localhost:3306)/ecron")
-	if err != nil {
-		panic(err)
-	}
-	if err = db.Wait(); err != nil {
-		panic(err)
-	}
-}
-
-type Task struct {
+type TaskInfo struct {
 	Id              int64 `eorm:"auto_increment,primary_key"`
 	Name            string
 	SchedulerStatus string
-	ExecuteStatus   string
+	Epoch           int64
 	Cron            string
 	Type            string
 	Config          string
+	BaseColumns
+}
+
+type TaskExecution struct {
+	Id            int64 `eorm:"auto_increment,primary_key"`
+	TaskId        int64
+	ExecuteStatus string
+	BaseColumns
+}
+
+type BaseColumns struct {
+	CreateTime time.Time `eorm:"-"`
+	UpdateTime time.Time `eorm:"-"`
 }

@@ -12,21 +12,6 @@ import (
 	"time"
 )
 
-type EventType string
-
-type Event struct {
-	Type EventType
-}
-
-const (
-	// EventTypeWaiting 等待当前正在执行的任务运行完成
-	EventTypeWaiting = "waiting"
-	// EventTypeFailed 当前正在执行的任务运行失败
-	EventTypeFailed = "failed"
-	// EventTypeSuccess 当前正在执行的任务运行成功
-	EventTypeSuccess = "success"
-)
-
 // scheduledTask与Scheduler间交互的事件
 type scheduledEvent struct {
 	task *scheduledTask
@@ -170,24 +155,28 @@ func (r *scheduledTask) run() {
 	}
 	errCount := 0
 Loop:
-	events := r.executor.Execute(r.task)
+	events, err := r.executor.Execute(r.task)
+	if err != nil {
+		r.events <- scheduledEvent{task: r, t: task.EventTypeFailed}
+		return
+	}
 	for e := range events {
 		se := scheduledEvent{task: r}
 		switch e.Type {
-		case EventTypeWaiting:
+		case executor.EventTypeWaiting:
 			se.t = task.EventTypeRunning
 			r.events <- se
 			continue
-		case EventTypeFailed:
+		case executor.EventTypeFailed:
 			// 根据自定义配置 控制单次任务失败后的重试
 			if r.task.Retry.Need && errCount < r.task.Retry.Count {
-				se.t = EventTypeWaiting
+				se.t = executor.EventTypeWaiting
 				r.events <- se
 				errCount++
 				goto Loop
 			}
 			se.t = task.EventTypeFailed
-		case EventTypeSuccess:
+		case executor.EventTypeSuccess:
 			se.t = task.EventTypeSuccess
 		}
 		r.events <- se

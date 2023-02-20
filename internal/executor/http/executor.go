@@ -3,7 +3,8 @@ package http
 import (
 	"context"
 	"encoding/json"
-	"github.com/gotomicro/ecron/internal/scheduler"
+	"errors"
+	"github.com/gotomicro/ecron/internal/executor"
 	"github.com/gotomicro/ecron/internal/task"
 	"io"
 	"net/http"
@@ -11,12 +12,21 @@ import (
 	"time"
 )
 
+var _ executor.Executor = &Executor{}
+
+var _legalMethod = map[string]struct{}{
+	"post":   {},
+	"get":    {},
+	"put":    {},
+	"delete": {},
+}
+
 type ApiConfig struct {
 	URL      string            `json:"url" comment:"URL"`
 	Method   string            `json:"method" comment:"Method"`
-	PayLoad  string            `json:"payload" comment:"PayLoad"`
-	Header   map[string]string `json:"header" comment:"Header"`
-	Deadline int64             `json:"deadline" comment:"Deadline"` // 以秒为单位 默认5s
+	Payload  string            `json:"payload,omitempty" comment:"Payload"`
+	Header   map[string]string `json:"header,omitempty" comment:"Header"`
+	Deadline int64             `json:"deadline,omitempty" comment:"Deadline"` // 以秒为单位 默认5s
 }
 
 const (
@@ -29,30 +39,43 @@ type Resp struct {
 	// Status 请求执行状态
 	Status int `json:"status"`
 	// Delay 下次请求的延迟时间 以秒为单位
-	Delay int64 `json:"delay"`
+	Delay int64 `json:"delay,omitempty"`
 	// Payload 如果有值 则轮询中下次查询时会将此参数放在body中发送
-	Payload string `json:"payload"`
+	Payload string `json:"payload,omitempty"`
 }
 
 type Executor struct {
-	client http.Client
+	client *http.Client
 }
 
-func (e *Executor) Execute(t *task.Task) <-chan scheduler.Event {
-	event := make(chan scheduler.Event)
-	go func(t *task.Task) {
+func NewExecutor() *Executor {
+	return &Executor{
+		client: &http.Client{},
+	}
+}
+
+func (e *Executor) Execute(t *task.Task) (<-chan executor.Event, error) {
+	if t == nil {
+		return nil, errors.New(`非法任务`)
+	}
+	event := make(chan executor.Event)
+	c := &ApiConfig{}
+	if err := json.Unmarshal(t.Executor, c); err != nil {
+		return nil, errors.New(`非法配置`)
+	}
+	if _, ok := _legalMethod[strings.ToLower(c.Method)]; !ok {
+		return nil, errors.New(`非法方法`)
+	}
+	go func(c *ApiConfig) {
 		failed := true
 		defer func() {
 			if failed {
-				event <- scheduler.Event{Type: scheduler.EventTypeFailed}
+				event <- executor.Event{Type: executor.EventTypeFailed}
 			}
+			close(event)
 		}()
-		c := &ApiConfig{}
-		if err := json.Unmarshal(t.Executor, c); err != nil {
-			return
-		}
 	Next:
-		req, err := http.NewRequest(c.Method, c.URL, strings.NewReader(c.PayLoad))
+		req, err := http.NewRequest(c.Method, c.URL, strings.NewReader(c.Payload))
 		if err != nil {
 			return
 		}
@@ -68,7 +91,7 @@ func (e *Executor) Execute(t *task.Task) <-chan scheduler.Event {
 			return
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
+		if resp.StatusCode != http.StatusOK {
 			return
 		}
 		var msg []byte
@@ -81,19 +104,19 @@ func (e *Executor) Execute(t *task.Task) <-chan scheduler.Event {
 		}
 		switch info.Status {
 		case StatusSuccess:
-			event <- scheduler.Event{Type: scheduler.EventTypeSuccess}
+			event <- executor.Event{Type: executor.EventTypeSuccess}
 			failed = false
 		case StatusRunning:
-			event <- scheduler.Event{Type: scheduler.EventTypeWaiting}
-			if len(c.PayLoad) > 0 {
-				c.PayLoad = info.Payload
+			event <- executor.Event{Type: executor.EventTypeWaiting}
+			if len(info.Payload) > 0 {
+				c.Payload = info.Payload
 			}
 			if info.Delay <= 0 {
 				info.Delay = 60
 			}
-			time.Sleep(time.Second * time.Duration(info.Delay))
+			time.Sleep(time.Millisecond * time.Duration(info.Delay))
 			goto Next
 		}
-	}(t)
-	return event
+	}(c)
+	return event, nil
 }

@@ -21,7 +21,7 @@ type scheduledEvent struct {
 type Scheduler struct {
 	s               storage.Storage
 	tasks           map[string]scheduledTask
-	executors       map[string]executor.Executor
+	executors       map[task.Type]executor.Executor
 	mux             sync.Mutex
 	readyTasks      queue.DelayQueue[execution]
 	taskEvents      chan task.Event     //send to storage
@@ -67,7 +67,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			case storage.EventTypeDeleted:
 				s.mux.Lock()
 				tn, ok := s.tasks[event.Task.Name]
-				delete(s.executors, event.Task.Name)
+				delete(s.tasks, event.Task.Name)
 				s.mux.Unlock()
 				if ok {
 					tn.stop()

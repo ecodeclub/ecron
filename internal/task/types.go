@@ -3,7 +3,7 @@ package task
 type Type string
 
 const (
-	TypeHTTP = "http_task"
+	TypeHTTP Type = "http_task"
 )
 
 type EventType string

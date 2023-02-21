@@ -6,6 +6,7 @@ require (
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
 	github.com/gotomicro/ekit v0.0.5
 	github.com/stretchr/testify v1.7.1
+	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde
 )
 
 require (

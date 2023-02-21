@@ -97,6 +97,48 @@ func TestScheduler_Start(t *testing.T) {
 				nil,
 			},
 		},
+		{
+			name: "http-suc-twice",
+			fields: fields{
+				s:     &testStorage{ch: make(chan storage.Event, 3)},
+				tasks: make(map[string]scheduledTask),
+				executors: map[task.Type]executor.Executor{
+					task.TypeHTTP: ehttp.NewExecutor(),
+				},
+				readyTasks:      queue.NewDelayQueue[execution](20),
+				taskEvents:      make(chan task.Event),
+				scheduledEvents: make(chan scheduledEvent),
+			},
+			args: args{
+				ctx: context.Background(),
+				tasks: []task.Task{
+					{Config: task.Config{
+						Name: "http-suc-twice",
+						Cron: "*/5 * * * * * *",
+						Type: task.TypeHTTP,
+						Retry: struct {
+							Need  bool
+							Count int
+						}{},
+						Executor: []byte(`{"url":"http://127.0.0.1:8000/suc-twice","method":"post"}`),
+					}},
+				},
+			},
+			wantStatus: []task.Event{
+				{
+					TaskName: "http-suc-twice",
+					Type:     task.EventTypeRunning,
+				},
+				{
+					TaskName: "http-suc-twice",
+					Type:     task.EventTypeSuccess,
+				},
+			},
+			wantErr: []error{
+				context.Canceled,
+				nil,
+			},
+		},
 	}
 	errTaskNameNotEqual := errors.New(`task name not equal`)
 	errTaskTypeNotEqual := errors.New(`task type not equal`)

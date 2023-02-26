@@ -10,8 +10,10 @@ import (
 )
 
 func main() {
-	storeIns := mysql.NewMysqlStorage(context.TODO(), "root:@tcp(localhost:3306)/ecron", 2*time.Second, time.Minute)
 	ctx := context.TODO()
+	storeIns := mysql.NewMysqlStorage("root:@tcp(localhost:3306)/ecron", 2*time.Second, 3*time.Second, time.Minute)
+	go storeIns.RunPreempt(ctx)
+	go storeIns.AutoRefresh(ctx)
 
 	sche := scheduler.NewScheduler(storeIns)
 	go func() {

@@ -10,7 +10,6 @@ import (
 	"github.com/gorhill/cronexpr"
 	"github.com/gotomicro/ecron/internal/executor"
 	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/storage/mysql"
 	"github.com/gotomicro/ecron/internal/task"
 	"github.com/gotomicro/ekit/queue"
 )
@@ -25,7 +24,6 @@ func NewScheduler(s storage.Storager) *Scheduler {
 		taskEvents: make(chan task.Event),
 	}
 
-	// 注册http执行器
 	sc.executors = map[string]executor.Executor{
 		task.TypeHTTP: executor.NewHttpExec(),
 	}
@@ -54,7 +52,6 @@ func (sc *Scheduler) Start(ctx context.Context) error {
 		case event := <-events:
 			switch event.Type {
 			case storage.EventTypePreempted:
-				// 创建一个将要执行的任务，并加入等待队列待执行
 				t := sc.newRunningTask(ctx, event.Task, sc.executors[string(event.Task.Type)])
 				sc.mux.Lock()
 				sc.tasks[t.task.Name] = t
@@ -64,7 +61,7 @@ func (sc *Scheduler) Start(ctx context.Context) error {
 					// 这里表示延迟多久执行, 通过cron expr包解析获取
 					time: t.next(),
 				})
-				log.Println("preempted success, enqueued done")
+				log.Println("preempted success, enqueued done, expect dequeue time: ", t.next())
 			case storage.EventTypeDeleted:
 				sc.mux.Lock()
 				tn, ok := sc.tasks[event.Task.Name]
@@ -81,22 +78,20 @@ func (sc *Scheduler) Start(ctx context.Context) error {
 func (sc *Scheduler) executeLoop(ctx context.Context) error {
 	for {
 		t, err := sc.readyTasks.Dequeue(ctx)
-		log.Println("executeLoop: ", t)
+		log.Println("executeLoop: want execute in: ", t.time)
 		if err != nil {
 			return err
 		}
 		err = t.run()
 		if err != nil {
-			if er := sc.s.Update(ctx, t.task, mysql.TaskExecution{
-				ExecuteStatus: task.EventTypeFailed,
-				Id:            sc.tasks[t.task.Name].executeId}); er != nil {
+			if er := sc.s.Update(ctx, t.task.TaskId, nil, &storage.Status{
+				UseStatus: task.EventTypeFailed}); er != nil {
 				log.Println(er)
 			}
 			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeFailed}
 		} else {
-			if er := sc.s.Update(ctx, t.task, mysql.TaskExecution{
-				ExecuteStatus: task.EventTypeSuccess,
-				Id:            sc.tasks[t.task.Name].executeId}); er != nil {
+			if er := sc.s.Update(ctx, t.task.TaskId, nil, &storage.Status{
+				UseStatus: task.EventTypeSuccess}); er != nil {
 				log.Println(er)
 			}
 			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeSuccess}
@@ -111,14 +106,14 @@ func (sc *Scheduler) newRunningTask(ctx context.Context, t *task.Task, exe execu
 		err   error
 	)
 	// 根据任务配置，在db创建一个执行记录
-	if exeId, err = sc.s.Add(ctx, t, mysql.TaskExecution{}); err != nil {
+	if exeId, err = sc.s.AddExecution(ctx, t.TaskId); err != nil {
 		log.Println(err)
 		return st
 	}
 	st = scheduledTask{
 		task:       t,
 		executor:   exe,
-		executeId:  exeId, // 任务的执行id
+		executeId:  exeId,
 		expr:       cronexpr.MustParse(t.Cron),
 		taskEvents: make(chan task.Event),
 	}

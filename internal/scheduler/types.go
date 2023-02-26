@@ -35,5 +35,6 @@ type execution struct {
 }
 
 func (e execution) Delay() time.Duration {
-	return e.time.Sub(time.Now())
+	//return e.time.Sub(time.Now())
+	return time.Until(e.time)
 }

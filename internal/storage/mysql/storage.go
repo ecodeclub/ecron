@@ -2,7 +2,7 @@ package mysql
 
 import (
 	"context"
-	"errors"
+	"database/sql"
 	"log"
 	"time"
 
@@ -14,12 +14,13 @@ import (
 
 type Storage struct {
 	db                *eorm.DB
-	interval          time.Duration // 发起任务抢占时间间隔
+	intervalP         time.Duration // 发起任务抢占时间间隔
+	intervalR         time.Duration // 发起任务抢占续约时间间隔
 	preemptionTimeout time.Duration // 抢占任务超时时间
 	events            chan storage.Event
 }
 
-func NewMysqlStorage(ctx context.Context, dsn string, interval, timeout time.Duration) *Storage {
+func NewMysqlStorage(dsn string, intervalP, intervalR, timeout time.Duration) *Storage {
 	db, err := eorm.Open("mysql", dsn)
 	if err != nil {
 		panic(err)
@@ -32,108 +33,113 @@ func NewMysqlStorage(ctx context.Context, dsn string, interval, timeout time.Dur
 	s := &Storage{
 		events:            make(chan storage.Event),
 		db:                db,
-		interval:          interval,
+		intervalP:         intervalP,
+		intervalR:         intervalR,
 		preemptionTimeout: timeout,
 	}
-
-	go s.RunPreempt(ctx)
-
 	return s
 }
 
-// Get 防止因多个节点请求db抢占任务引起的冲突，引入epoch，抢占之后会+1
-// 抢占续约也会用到这个字段
-// 同时记录下每一个task的epoch在task结构体中
-func (s *Storage) Get(ctx context.Context, status string) (*task.Task, error) {
-	// 先获取符合条件的task，初始的epoch都是0，每次获取到之后就+1
-	// 然后修改task的epoch，防止多个storage抢占冲突
-	taskInfo, err := eorm.NewSelector[TaskInfo](s.db).
+func (s *Storage) Get(ctx context.Context) ([]*task.Task, error) {
+	// 抢占两种类型的任务：
+	// 1. 长时间没有续约的已经抢占的任务
+	// 2. 处于创建状态的任务
+	tasks, err := eorm.NewSelector[TaskInfo](s.db).
 		Select().From(&TaskInfo{}).
-		Where(eorm.C("SchedulerStatus").EQ(status), eorm.C("Epoch").EQ(0)).
-		Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	// 获取成功之后会将调度状态由created 改成 not-preempt
-	err = eorm.NewUpdater[TaskInfo](s.db).
-		Update(&TaskInfo{Epoch: taskInfo.Epoch + 1, SchedulerStatus: storage.EventTypeNotPreempted}).
-		Set(eorm.Columns("Epoch", "SchedulerStatus")).
-		Where(eorm.C("Id").EQ(taskInfo.Id)).
-		Exec(ctx).Err()
+		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypeCreated).
+			And(eorm.C("UpdateTime").
+				LTEQ(time.Now().Add(-s.intervalR).Format("2006-01-02 15:04:05")))).
+		GetMulti(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	t := &task.Task{
-		Config: task.Config{
-			Name:       taskInfo.Name,
-			Cron:       taskInfo.Cron,
-			Type:       task.Type(taskInfo.Type),
-			Parameters: taskInfo.Config,
-		},
-		TaskId: taskInfo.Id,
-		Epoch:  taskInfo.Epoch + 1,
+	ts := make([]*task.Task, 0, len(tasks))
+	for _, item := range tasks {
+		ts = append(ts, &task.Task{
+			Config: task.Config{
+				Name:       item.Name,
+				Cron:       item.Cron,
+				Type:       task.Type(item.Type),
+				Parameters: item.Config,
+			},
+			TaskId: item.Id,
+		})
 	}
-	return t, nil
+	return ts, nil
 }
 
 // Add 创建task，设置调度状态是created
-func (s *Storage) Add(ctx context.Context, t *task.Task, dao ...any) (int64, error) {
-	var (
-		id  int64
-		err error
-	)
-	for _, d := range dao {
-		switch d.(type) {
-		case TaskInfo:
-			if id, err = eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
-				Name:            t.Name,
-				Cron:            t.Cron,
-				SchedulerStatus: storage.EventTypeCreated,
-				Type:            string(t.Type),
-				Config:          t.Parameters,
-				Epoch:           0,
-			}).Exec(ctx).LastInsertId(); err != nil {
-				return -1, err
-			}
-		case TaskExecution:
-			if id, err = eorm.NewInserter[TaskExecution](s.db).Values(&TaskExecution{
-				ExecuteStatus: storage.EventTypeCreated,
-				TaskId:        t.TaskId,
-			}).Exec(ctx).LastInsertId(); err != nil {
-				return -1, err
-			}
-		default:
-			return -1, errors.New("不支持的类型")
-		}
+func (s *Storage) Add(ctx context.Context, t *task.Task) (int64, error) {
+	return s.addTask(ctx, t.Name, t.Cron, string(t.Type), t.Parameters)
+}
+
+func (s *Storage) addTask(ctx context.Context, name, cron, typ, config string) (int64, error) {
+	id, err := eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
+		Name:            name,
+		Cron:            cron,
+		SchedulerStatus: storage.EventTypeCreated,
+		Type:            typ,
+		Config:          config,
+		BaseColumns: BaseColumns{
+			CreateTime: &NullTime{Time: time.Now(), Valid: true},
+			UpdateTime: &NullTime{Time: time.Now(), Valid: true},
+		},
+	}).Exec(ctx).LastInsertId()
+	if err != nil {
+		return -1, err
 	}
 	return id, nil
 }
 
-func (s *Storage) Update(ctx context.Context, t *task.Task, dao ...any) error {
-	for _, d := range dao {
-		switch ins := d.(type) {
-		case TaskInfo:
-			if err := eorm.NewUpdater[TaskInfo](s.db).
-				Update(&ins).
-				Set(eorm.Columns("SchedulerStatus", "Epoch")).
-				Where(eorm.C("Id").EQ(t.TaskId)).
-				Exec(ctx).Err(); err != nil {
-				return err
-			}
-		case TaskExecution:
-			if err := eorm.NewUpdater[TaskExecution](s.db).
-				Update(&ins).
-				Set(eorm.Columns("ExecuteStatus")).
-				Where(eorm.C("Id").EQ(ins.Id)).
-				Exec(ctx).Err(); err != nil {
-				return err
-			}
-		default:
-			return errors.New("不支持的类型")
+// AddExecution 创建一条执行记录
+func (s *Storage) AddExecution(ctx context.Context, taskId int64) (int64, error) {
+	id, err := eorm.NewInserter[TaskExecution](s.db).Values(&TaskExecution{
+		ExecuteStatus: storage.EventTypeCreated,
+		TaskId:        taskId,
+		BaseColumns: BaseColumns{
+			CreateTime: &NullTime{Time: time.Now(), Valid: true},
+			UpdateTime: &NullTime{Time: time.Now(), Valid: true},
+		},
+	}).Exec(ctx).LastInsertId()
+	if err != nil {
+		return -1, err
+	}
+	return id, nil
+}
+
+func (s *Storage) Update(ctx context.Context, taskId int64, taskStatus, executeStatus *storage.Status) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	if taskStatus != nil {
+		cond := eorm.C("Id").EQ(taskId)
+		if taskStatus.ExpectStatus != "" {
+			cond = cond.And(eorm.C("SchedulerStatus").EQ(taskStatus.ExpectStatus))
+		}
+		if er := eorm.NewUpdater[TaskInfo](tx).Update(&TaskInfo{
+			SchedulerStatus: taskStatus.UseStatus,
+			BaseColumns:     BaseColumns{UpdateTime: &NullTime{time.Now(), true}},
+		}).
+			Set(eorm.Columns("SchedulerStatus", "UpdateTime")).Where(cond).Exec(ctx).Err(); er != nil {
+			return tx.Rollback()
 		}
 	}
-	return nil
+	if executeStatus != nil {
+		cond := eorm.C("TaskId").EQ(taskId)
+		if executeStatus.ExpectStatus != "" {
+			cond = cond.And(eorm.C("ExecuteStatus").EQ(executeStatus.ExpectStatus))
+		}
+		if er := eorm.NewUpdater[TaskExecution](tx).Update(&TaskExecution{
+			ExecuteStatus: executeStatus.UseStatus,
+			BaseColumns:   BaseColumns{UpdateTime: &NullTime{time.Now(), true}},
+		}).
+			Set(eorm.Columns("ExecuteStatus", "UpdateTime")).Where(cond).Exec(ctx).Err(); er != nil {
+			return tx.Rollback()
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Storage) Delete(ctx context.Context, taskId int64) error {
@@ -143,10 +149,11 @@ func (s *Storage) Delete(ctx context.Context, taskId int64) error {
 
 // RunPreempt 每隔固定时间去db中抢占任务
 func (s *Storage) RunPreempt(ctx context.Context) {
-	ticker := time.NewTicker(s.interval)
+	// 抢占任务间隔
+	tickerP := time.NewTicker(s.intervalP)
 	for {
 		select {
-		case <-ticker.C:
+		case <-tickerP.C:
 			log.Println("storage begin preempt task")
 			s.preempted(ctx)
 		default:
@@ -154,32 +161,35 @@ func (s *Storage) RunPreempt(ctx context.Context) {
 	}
 }
 
-// TODO 抢占之后节点挂掉的情况，考虑通过租约的方式实现，定期刷新task epoch
 func (s *Storage) preempted(ctx context.Context) {
 	tCtx, cancel := context.WithTimeout(ctx, s.preemptionTimeout)
 	defer func() {
 		cancel()
 	}()
 
-	// 抢占已添加任务, 每次执行只抢一个
-	// get成功就表示我已经能抢占一个任务，此时epoch已经更新成+1了
-	tsk, err := s.Get(tCtx, storage.EventTypeCreated)
+	// get 之后，进行update 更新
+	tasks, err := s.Get(tCtx)
 	if err != nil {
 		log.Println("获取待抢占任务失败", err)
 		return
 	}
 
-	// 将get到的task写入已抢占状态
-	err = s.Update(ctx, tsk, TaskInfo{SchedulerStatus: storage.EventTypePreempted, Epoch: tsk.Epoch})
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	for _, item := range tasks {
+		// 如果get到的task是创建状态，则写入已抢占状态
+		err = s.Update(ctx, item.TaskId, &storage.Status{
+			ExpectStatus: storage.EventTypeCreated,
+			UseStatus:    storage.EventTypePreempted,
+		}, nil)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
 
-	// 写入storage抢占事件，供调度去执行
-	s.events <- storage.Event{
-		Type: storage.EventTypePreempted,
-		Task: tsk,
+		// 写入storage抢占事件，供调度去执行
+		s.events <- storage.Event{
+			Type: storage.EventTypePreempted,
+			Task: item,
+		}
 	}
 }
 
@@ -191,19 +201,28 @@ func (s *Storage) Events(ctx context.Context, taskEvents <-chan task.Event) (<-c
 			case event := <-taskEvents:
 				switch event.Type {
 				case task.EventTypeRunning:
-					err := s.Update(ctx, &event.Task, TaskInfo{SchedulerStatus: storage.EventTypeRunnable, Epoch: event.Epoch})
+					err := s.Update(ctx, event.TaskId, &storage.Status{
+						ExpectStatus: storage.EventTypePreempted,
+						UseStatus:    storage.EventTypeRunnable,
+					}, nil)
 					if err != nil {
 						log.Println(err)
 					}
 					log.Println("storage 收到 task执行中信号")
 				case task.EventTypeSuccess:
-					err := s.Update(ctx, &event.Task, TaskInfo{SchedulerStatus: storage.EventTypeEnd, Epoch: event.Epoch})
+					err := s.Update(ctx, event.TaskId, &storage.Status{
+						ExpectStatus: storage.EventTypePreempted,
+						UseStatus:    storage.EventTypeEnd,
+					}, nil)
 					if err != nil {
 						log.Println(err)
 					}
 					log.Println("storage 收到 task执行成功信号")
 				case task.EventTypeFailed:
-					err := s.Update(ctx, &event.Task, TaskInfo{SchedulerStatus: storage.EventTypeEnd, Epoch: event.Epoch})
+					err := s.Update(ctx, event.TaskId, &storage.Status{
+						ExpectStatus: storage.EventTypePreempted,
+						UseStatus:    storage.EventTypeEnd,
+					}, nil)
 					if err != nil {
 						log.Println(err)
 					}
@@ -212,6 +231,52 @@ func (s *Storage) Events(ctx context.Context, taskEvents <-chan task.Event) (<-c
 			}
 		}
 	}()
-
 	return s.events, nil
+}
+
+// Refresh 获取所有已经抢占的任务，并更新时间和epoch
+// 目前epoch仅作为续约持续时间的评估
+func (s *Storage) refresh(ctx context.Context, taskId, epoch int64) {
+	// 续约任务间隔
+	tickerR := time.NewTicker(s.intervalR)
+	end := make(chan struct{})
+	for {
+		select {
+		case <-end:
+			log.Printf("taskId: %d refresh preemted end", taskId)
+			return
+		case <-tickerR.C:
+			epoch++
+			log.Printf("taskId: %d storage begin refresh preempted task", taskId)
+			rowsAffect, err := eorm.NewUpdater[TaskInfo](s.db).
+				Update(&TaskInfo{
+					Epoch:       epoch,
+					BaseColumns: BaseColumns{UpdateTime: &NullTime{Time: time.Now(), Valid: true}},
+				}).
+				Set(eorm.Columns("Epoch"), eorm.C("UpdateTime")).
+				Where(eorm.C("Id").EQ(taskId).And(eorm.C("Epoch").EQ(epoch - 1)).
+					And(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted))).Exec(ctx).RowsAffected()
+			if err != nil {
+				log.Printf("taskId: %d refresh preempted fail, %s", taskId, err)
+				return
+			}
+			// 获取的任务抢占状态改变，则终止续约
+			if rowsAffect == 0 {
+				close(end)
+			}
+		}
+	}
+}
+
+func (s *Storage) AutoRefresh(ctx context.Context) {
+	// 获取当前出去抢占状态的任务，需要在后续任务变成非抢占状态时结束续约
+	tasks, _ := eorm.NewSelector[TaskInfo](s.db).
+		Select().From(&TaskInfo{}).
+		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
+		GetMulti(ctx)
+
+	for _, t := range tasks {
+		go s.refresh(ctx, t.Id, t.Epoch)
+	}
+
 }

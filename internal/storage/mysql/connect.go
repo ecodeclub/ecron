@@ -1,6 +1,10 @@
 package mysql
 
-import "time"
+import (
+	"database/sql/driver"
+	"errors"
+	"time"
+)
 
 type TaskInfo struct {
 	Id              int64 `eorm:"auto_increment,primary_key"`
@@ -21,6 +25,34 @@ type TaskExecution struct {
 }
 
 type BaseColumns struct {
-	CreateTime time.Time `eorm:"-"`
-	UpdateTime time.Time `eorm:"-"`
+	CreateTime *NullTime
+	UpdateTime *NullTime
+}
+
+type NullTime struct {
+	Time  time.Time
+	Valid bool // Valid is true if Time is not NULL
+}
+
+func (nt NullTime) Value() (driver.Value, error) {
+	if !nt.Valid {
+		return nil, nil
+	}
+	return nt.Time.Format("2006-01-02 15:04:05"), nil
+}
+
+// Scan implements the Scanner interface.
+func (nt *NullTime) Scan(value interface{}) error {
+	switch v := value.(type) {
+	case []uint8:
+		t, err := time.ParseInLocation("2006-01-02 15:04:05", string(v), time.Local)
+		if err != nil {
+			return err
+		}
+		nt.Time = t
+		nt.Valid = true
+	default:
+		return errors.New("unsupported type")
+	}
+	return nil
 }

@@ -28,14 +28,19 @@ type Storager interface {
 }
 
 type TaskDAO interface {
-	Get(ctx context.Context, status string) (*task.Task, error)
-	//GetMulti(ctx context.Context, status string, epoch int64) []*task.Task
-	Add(ctx context.Context, t *task.Task, dao ...any) (int64, error)
-	Update(ctx context.Context, t *task.Task, dao ...any) error
+	Get(ctx context.Context) ([]*task.Task, error)
+	Add(ctx context.Context, t *task.Task) (int64, error)
+	AddExecution(ctx context.Context, taskId int64) (int64, error)
+	Update(ctx context.Context, taskId int64, taskStatus, executeStatus *Status) error
 	Delete(ctx context.Context, taskId int64) error
 }
 
 type Event struct {
 	Type EventType
 	Task *task.Task
+}
+
+type Status struct {
+	ExpectStatus string
+	UseStatus    string
 }

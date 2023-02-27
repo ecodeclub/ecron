@@ -4,5 +4,6 @@
 [文档](https://ekit.gocn.vip/ecron/develop/guide/)
 
 ## 学习交流群
-![DF64E7AA-7789-444F-95CE-73061D163EC2](https://user-images.githubusercontent.com/9923838/215773391-7f13c13c-8c49-4430-a3e4-e3935c664acb.jpeg)
+![image](https://user-images.githubusercontent.com/9923838/221492256-98c9e2ee-e0ac-45d0-8989-41b674d59a78.png)
+
 

@@ -11,7 +11,7 @@ import (
 
 func main() {
 	ctx := context.TODO()
-	storeIns := mysql.NewMysqlStorage("root:@tcp(localhost:3306)/ecron", 2*time.Second, 3*time.Second, time.Minute)
+	storeIns := mysql.NewMysqlStorage("root:@tcp(localhost:3306)/ecron", mysql.WithPreemptInterval(1*time.Second))
 	go storeIns.RunPreempt(ctx)
 	go storeIns.AutoRefresh(ctx)
 

@@ -33,7 +33,7 @@ func NewScheduler(s storage.Storager) *Scheduler {
 
 func (sc *Scheduler) Start(ctx context.Context) error {
 	go func() {
-		// 这里进行已经写入延迟队列中的事件执行，并且写入时间执的结果
+		// 这里进行已经写入延迟队列中的事件执行，并且写入时间执行的结果
 		e := sc.executeLoop(ctx)
 		if e != nil {
 			log.Println(e)
@@ -58,10 +58,10 @@ func (sc *Scheduler) Start(ctx context.Context) error {
 				sc.mux.Unlock()
 				_ = sc.readyTasks.Enqueue(ctx, execution{
 					scheduledTask: &t,
-					// 这里表示延迟多久执行, 通过cron expr包解析获取
+					// TODO 当前demo只是跑的一次性任务，需要适配定时任务
 					time: t.next(),
 				})
-				log.Println("preempted success, enqueued done, expect dequeue time: ", t.next())
+				log.Println("preempted success, enqueued done")
 			case storage.EventTypeDeleted:
 				sc.mux.Lock()
 				tn, ok := sc.tasks[event.Task.Name]
@@ -78,20 +78,20 @@ func (sc *Scheduler) Start(ctx context.Context) error {
 func (sc *Scheduler) executeLoop(ctx context.Context) error {
 	for {
 		t, err := sc.readyTasks.Dequeue(ctx)
-		log.Println("executeLoop: want execute in: ", t.time)
+		log.Println("executeLoop: want execute task in: ", t.time)
 		if err != nil {
 			return err
 		}
 		err = t.run()
 		if err != nil {
-			if er := sc.s.Update(ctx, t.task.TaskId, nil, &storage.Status{
-				UseStatus: task.EventTypeFailed}); er != nil {
+			if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId, task.EventTypeRunning,
+				task.EventTypeFailed); er != nil {
 				log.Println(er)
 			}
 			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeFailed}
 		} else {
-			if er := sc.s.Update(ctx, t.task.TaskId, nil, &storage.Status{
-				UseStatus: task.EventTypeSuccess}); er != nil {
+			if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId, task.EventTypeRunning,
+				task.EventTypeSuccess); er != nil {
 				log.Println(er)
 			}
 			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeSuccess}

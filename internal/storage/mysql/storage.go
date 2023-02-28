@@ -2,13 +2,13 @@ package mysql
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gotomicro/ecron/internal/storage"
 	"github.com/gotomicro/ecron/internal/task"
+	"github.com/gotomicro/ekit/bean/option"
 	"github.com/gotomicro/eorm"
 )
 
@@ -20,7 +20,7 @@ type Storage struct {
 	events            chan storage.Event
 }
 
-func NewMysqlStorage(dsn string, intervalP, intervalR, timeout time.Duration) *Storage {
+func NewMysqlStorage(dsn string, opt ...option.Option[Storage]) *Storage {
 	db, err := eorm.Open("mysql", dsn)
 	if err != nil {
 		panic(err)
@@ -33,22 +33,41 @@ func NewMysqlStorage(dsn string, intervalP, intervalR, timeout time.Duration) *S
 	s := &Storage{
 		events:            make(chan storage.Event),
 		db:                db,
-		intervalP:         intervalP,
-		intervalR:         intervalR,
-		preemptionTimeout: timeout,
+		intervalP:         2 * time.Second,
+		intervalR:         3 * time.Second,
+		preemptionTimeout: time.Minute,
 	}
+
+	option.Apply[Storage](s, opt...)
 	return s
+}
+
+func WithPreemptInterval(t time.Duration) option.Option[Storage] {
+	return func(s *Storage) {
+		s.intervalP = t
+	}
+}
+
+func WithRefreshInterval(t time.Duration) option.Option[Storage] {
+	return func(s *Storage) {
+		s.intervalR = t
+	}
+}
+
+func WithPreemptTimeout(t time.Duration) option.Option[Storage] {
+	return func(s *Storage) {
+		s.preemptionTimeout = t
+	}
 }
 
 func (s *Storage) Get(ctx context.Context) ([]*task.Task, error) {
 	// 抢占两种类型的任务：
 	// 1. 长时间没有续约的已经抢占的任务
 	// 2. 处于创建状态的任务
-	tasks, err := eorm.NewSelector[TaskInfo](s.db).
-		Select().From(&TaskInfo{}).
+	tasks, err := eorm.NewSelector[TaskInfo](s.db).From(&TaskInfo{}).
 		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypeCreated).
 			And(eorm.C("UpdateTime").
-				LTEQ(time.Now().Add(-s.intervalR).Format("2006-01-02 15:04:05")))).
+				LTEQ(time.Now().UnixMilli() - s.intervalR.Milliseconds()))).
 		GetMulti(ctx)
 	if err != nil {
 		return nil, err
@@ -82,8 +101,8 @@ func (s *Storage) addTask(ctx context.Context, name, cron, typ, config string) (
 		Type:            typ,
 		Config:          config,
 		BaseColumns: BaseColumns{
-			CreateTime: &NullTime{Time: time.Now(), Valid: true},
-			UpdateTime: &NullTime{Time: time.Now(), Valid: true},
+			CreateTime: time.Now().UnixMilli(),
+			UpdateTime: time.Now().UnixMilli(),
 		},
 	}).Exec(ctx).LastInsertId()
 	if err != nil {
@@ -98,8 +117,8 @@ func (s *Storage) AddExecution(ctx context.Context, taskId int64) (int64, error)
 		ExecuteStatus: storage.EventTypeCreated,
 		TaskId:        taskId,
 		BaseColumns: BaseColumns{
-			CreateTime: &NullTime{Time: time.Now(), Valid: true},
-			UpdateTime: &NullTime{Time: time.Now(), Valid: true},
+			CreateTime: time.Now().UnixMilli(),
+			UpdateTime: time.Now().UnixMilli(),
 		},
 	}).Exec(ctx).LastInsertId()
 	if err != nil {
@@ -108,38 +127,31 @@ func (s *Storage) AddExecution(ctx context.Context, taskId int64) (int64, error)
 	return id, nil
 }
 
-func (s *Storage) Update(ctx context.Context, taskId int64, taskStatus, executeStatus *storage.Status) error {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return err
-	}
-	if taskStatus != nil {
-		cond := eorm.C("Id").EQ(taskId)
-		if taskStatus.ExpectStatus != "" {
-			cond = cond.And(eorm.C("SchedulerStatus").EQ(taskStatus.ExpectStatus))
-		}
-		if er := eorm.NewUpdater[TaskInfo](tx).Update(&TaskInfo{
-			SchedulerStatus: taskStatus.UseStatus,
-			BaseColumns:     BaseColumns{UpdateTime: &NullTime{time.Now(), true}},
-		}).
-			Set(eorm.Columns("SchedulerStatus", "UpdateTime")).Where(cond).Exec(ctx).Err(); er != nil {
-			return tx.Rollback()
-		}
-	}
-	if executeStatus != nil {
-		cond := eorm.C("TaskId").EQ(taskId)
-		if executeStatus.ExpectStatus != "" {
-			cond = cond.And(eorm.C("ExecuteStatus").EQ(executeStatus.ExpectStatus))
-		}
-		if er := eorm.NewUpdater[TaskExecution](tx).Update(&TaskExecution{
-			ExecuteStatus: executeStatus.UseStatus,
-			BaseColumns:   BaseColumns{UpdateTime: &NullTime{time.Now(), true}},
-		}).
-			Set(eorm.Columns("ExecuteStatus", "UpdateTime")).Where(cond).Exec(ctx).Err(); er != nil {
-			return tx.Rollback()
-		}
-	}
-	return tx.Commit()
+func (s *Storage) CompareAndUpdateTaskStatus(ctx context.Context, taskId int64, old, new string) error {
+	cond := eorm.C("Id").EQ(taskId).And(eorm.C("SchedulerStatus").EQ(old))
+	return eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{
+		SchedulerStatus: new,
+		BaseColumns:     BaseColumns{UpdateTime: time.Now().UnixMilli()},
+	}).Set(eorm.Columns("SchedulerStatus", "UpdateTime")).Where(cond).Exec(ctx).Err()
+}
+
+func (s *Storage) CompareAndUpdateTaskExecutionStatus(ctx context.Context, taskId int64, old, new string) error {
+	cond := eorm.C("TaskId").EQ(taskId).And(eorm.C("ExecuteStatus").EQ(old))
+	return eorm.NewUpdater[TaskExecution](s.db).Update(&TaskExecution{
+		ExecuteStatus: new,
+		BaseColumns:   BaseColumns{UpdateTime: time.Now().UnixMilli()},
+	}).Set(eorm.Columns("ExecuteStatus", "UpdateTime")).Where(cond).Exec(ctx).Err()
+}
+
+func (s *Storage) Update(ctx context.Context, t *task.Task) error {
+	return eorm.NewUpdater[TaskInfo](s.db).
+		Update(&TaskInfo{
+			Name:        t.Name,
+			Cron:        t.Cron,
+			Type:        string(t.Type),
+			Config:      t.Parameters,
+			BaseColumns: BaseColumns{UpdateTime: time.Now().UnixMilli()},
+		}).Where(eorm.C("Id").EQ(t.TaskId)).Exec(ctx).Err()
 }
 
 func (s *Storage) Delete(ctx context.Context, taskId int64) error {
@@ -176,10 +188,7 @@ func (s *Storage) preempted(ctx context.Context) {
 
 	for _, item := range tasks {
 		// 如果get到的task是创建状态，则写入已抢占状态
-		err = s.Update(ctx, item.TaskId, &storage.Status{
-			ExpectStatus: storage.EventTypeCreated,
-			UseStatus:    storage.EventTypePreempted,
-		}, nil)
+		err = s.CompareAndUpdateTaskStatus(ctx, item.TaskId, storage.EventTypeCreated, storage.EventTypePreempted)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -201,28 +210,22 @@ func (s *Storage) Events(ctx context.Context, taskEvents <-chan task.Event) (<-c
 			case event := <-taskEvents:
 				switch event.Type {
 				case task.EventTypeRunning:
-					err := s.Update(ctx, event.TaskId, &storage.Status{
-						ExpectStatus: storage.EventTypePreempted,
-						UseStatus:    storage.EventTypeRunnable,
-					}, nil)
+					err := s.CompareAndUpdateTaskStatus(ctx, event.TaskId, storage.EventTypePreempted,
+						storage.EventTypeRunnable)
 					if err != nil {
 						log.Println(err)
 					}
 					log.Println("storage 收到 task执行中信号")
 				case task.EventTypeSuccess:
-					err := s.Update(ctx, event.TaskId, &storage.Status{
-						ExpectStatus: storage.EventTypePreempted,
-						UseStatus:    storage.EventTypeEnd,
-					}, nil)
+					err := s.CompareAndUpdateTaskStatus(ctx, event.TaskId, storage.EventTypePreempted,
+						storage.EventTypeEnd)
 					if err != nil {
 						log.Println(err)
 					}
 					log.Println("storage 收到 task执行成功信号")
 				case task.EventTypeFailed:
-					err := s.Update(ctx, event.TaskId, &storage.Status{
-						ExpectStatus: storage.EventTypePreempted,
-						UseStatus:    storage.EventTypeEnd,
-					}, nil)
+					err := s.CompareAndUpdateTaskStatus(ctx, event.TaskId, storage.EventTypePreempted,
+						storage.EventTypeEnd)
 					if err != nil {
 						log.Println(err)
 					}
@@ -251,11 +254,10 @@ func (s *Storage) refresh(ctx context.Context, taskId, epoch int64) {
 			rowsAffect, err := eorm.NewUpdater[TaskInfo](s.db).
 				Update(&TaskInfo{
 					Epoch:       epoch,
-					BaseColumns: BaseColumns{UpdateTime: &NullTime{Time: time.Now(), Valid: true}},
-				}).
-				Set(eorm.Columns("Epoch"), eorm.C("UpdateTime")).
-				Where(eorm.C("Id").EQ(taskId).And(eorm.C("Epoch").EQ(epoch - 1)).
-					And(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted))).Exec(ctx).RowsAffected()
+					BaseColumns: BaseColumns{UpdateTime: time.Now().UnixMilli()},
+				}).Set(eorm.Assign("Epoch", eorm.C("Epoch").Add(1)), eorm.C("UpdateTime")).
+				Where(eorm.C("Id").EQ(taskId).And(eorm.C("SchedulerStatus").
+					EQ(storage.EventTypePreempted))).Exec(ctx).RowsAffected()
 			if err != nil {
 				log.Printf("taskId: %d refresh preempted fail, %s", taskId, err)
 				return

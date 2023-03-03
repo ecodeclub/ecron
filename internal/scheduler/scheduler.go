@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"log"
 	"sync"
 	"time"
@@ -82,19 +81,32 @@ func (sc *Scheduler) executeLoop(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = t.run()
-		if err != nil {
-			if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId, task.EventTypeRunning,
-				task.EventTypeFailed); er != nil {
-				log.Println(er)
+		go t.run()
+		for {
+			select {
+			case te := <-t.taskEvents:
+				switch te.Type {
+				case task.EventTypeRunning:
+					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
+						task.EventTypeInit, task.EventTypeRunning); err != nil {
+						log.Println(er)
+					}
+					log.Println("scheduler 收到task running信号")
+				case task.EventTypeSuccess:
+					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
+						task.EventTypeRunning, task.EventTypeSuccess); err != nil {
+						log.Println(er)
+					}
+					log.Println("scheduler 收到task run success信号")
+				case task.EventTypeFailed:
+					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
+						task.EventTypeRunning, task.EventTypeFailed); err != nil {
+						log.Println(er)
+					}
+					log.Println("scheduler 收到task run fail信号")
+				}
+				sc.taskEvents <- te
 			}
-			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeFailed}
-		} else {
-			if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId, task.EventTypeRunning,
-				task.EventTypeSuccess); er != nil {
-				log.Println(er)
-			}
-			sc.taskEvents <- task.Event{Task: *t.task, Type: task.EventTypeSuccess}
 		}
 	}
 }
@@ -128,11 +140,10 @@ func (r *scheduledTask) stop() {
 	r.stopped = true
 }
 
-func (r *scheduledTask) run() error {
-	var err error
+func (r *scheduledTask) run() {
 	// 如果这个任务已经被停止/取消了，什么也不做
 	if r.stopped {
-		return nil
+		return
 	}
 	// 这里executor返回一个task.Event,表示任务的执行状态
 	taskEvent := r.executor.Execute(r.task)
@@ -140,17 +151,12 @@ Loop:
 	for {
 		select {
 		case e := <-taskEvent:
+			r.taskEvents <- e
 			switch e.Type {
-			case task.EventTypeRunning:
-				log.Println("+++++get task event: running")
-			case task.EventTypeSuccess:
-				log.Println("+++++get task event: success")
-				break Loop
-			case task.EventTypeFailed:
-				err = errors.New("task execute failed")
+			case task.EventTypeFailed, task.EventTypeSuccess:
 				break Loop
 			}
 		}
 	}
-	return err
+	return
 }

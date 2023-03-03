@@ -27,7 +27,7 @@ type Storager interface {
 }
 
 type TaskDAO interface {
-	Get(ctx context.Context) ([]*task.Task, error)
+	Get(ctx context.Context, taskId int64) (*task.Task, error)
 	Add(ctx context.Context, t *task.Task) (int64, error)
 	AddExecution(ctx context.Context, taskId int64) (int64, error)
 	Update(ctx context.Context, t *task.Task) error

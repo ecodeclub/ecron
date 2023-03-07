@@ -2,7 +2,9 @@ package mysql
 
 import (
 	"context"
+	"log"
 	"testing"
+	"time"
 
 	"github.com/gotomicro/ecron/internal/storage"
 	"github.com/gotomicro/ecron/internal/task"
@@ -42,12 +44,33 @@ func TestStorage_Refresh(t *testing.T) {
 	s, err := NewMysqlStorage("root:@tcp(localhost:3306)/ecron")
 	assert.Nil(t, err)
 	tks, err := eorm.NewSelector[TaskInfo](s.db).
-		Select().From(&TaskInfo{}).
+		From(eorm.TableOf(&TaskInfo{}, "t1")).
 		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
 		GetMulti(ctx)
 	assert.Nil(t, err)
 	for _, tk := range tks {
-		go s.refresh(ctx, tk.Id, tk.Epoch)
+		go s.refresh(ctx, tk.Id, tk.Epoch, s.payLoad)
 	}
 	select {}
+}
+
+func Test_chan(t *testing.T) {
+	ch := t1()
+	select {
+	// 读
+	case <-ch:
+		log.Println("get...")
+	}
+}
+
+func t1() <-chan int {
+	ch := make(chan int)
+	time.Sleep(100 * time.Millisecond)
+	go func() {
+		select {
+		// 写
+		case ch <- 1:
+		}
+	}()
+	return ch
 }

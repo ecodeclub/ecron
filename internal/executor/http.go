@@ -23,16 +23,12 @@ func NewHttpExec() *HttpExec {
 
 func (h *HttpExec) Execute(t *task.Task) <-chan task.Event {
 	te := make(chan task.Event)
+	err := h.req(t.Parameters)
+	taskEvent := task.Event{Task: *t, Type: task.EventTypeFailed}
+	if err == nil {
+		taskEvent.Type = task.EventTypeSuccess
+	}
 	go func() {
-		te <- task.Event{Task: *t, Type: task.EventTypeRunning}
-	}()
-
-	go func() {
-		err := h.req(t.Parameters)
-		taskEvent := task.Event{Type: task.EventTypeFailed}
-		if err == nil {
-			taskEvent.Type = task.EventTypeSuccess
-		}
 		select {
 		case te <- taskEvent:
 			log.Println("task status update after execute")

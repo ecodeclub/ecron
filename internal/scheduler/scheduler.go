@@ -89,19 +89,19 @@ func (sc *Scheduler) executeLoop(ctx context.Context) error {
 				case task.EventTypeRunning:
 					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
 						task.EventTypeInit, task.EventTypeRunning); err != nil {
-						log.Println(er)
+						log.Println("sche running: ", er)
 					}
 					log.Println("scheduler 收到task running信号")
 				case task.EventTypeSuccess:
 					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
 						task.EventTypeRunning, task.EventTypeSuccess); err != nil {
-						log.Println(er)
+						log.Println("sche succ: ", er)
 					}
-					log.Println("scheduler 收到task run success信号")
+					log.Println("scheduler 收到task run success信号:", t.task.TaskId)
 				case task.EventTypeFailed:
 					if er := sc.s.CompareAndUpdateTaskExecutionStatus(ctx, t.task.TaskId,
 						task.EventTypeRunning, task.EventTypeFailed); err != nil {
-						log.Println(er)
+						log.Println("sche fail: ", er)
 					}
 					log.Println("scheduler 收到task run fail信号")
 				}
@@ -145,18 +145,18 @@ func (r *scheduledTask) run() {
 	if r.stopped {
 		return
 	}
+	select {
+	case r.taskEvents <- task.Event{Task: *r.task, Type: task.EventTypeRunning}:
+		log.Printf("task id: %d, is running", r.task.TaskId)
+	}
 	// 这里executor返回一个task.Event,表示任务的执行状态
 	taskEvent := r.executor.Execute(r.task)
-Loop:
-	for {
-		select {
-		case e := <-taskEvent:
-			r.taskEvents <- e
-			switch e.Type {
-			case task.EventTypeFailed, task.EventTypeSuccess:
-				break Loop
-			}
+	select {
+	case e := <-taskEvent:
+		r.taskEvents <- e
+		switch e.Type {
+		case task.EventTypeFailed, task.EventTypeSuccess:
+			return
 		}
 	}
-	return
 }

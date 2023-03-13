@@ -1,26 +1,28 @@
 package executor
 
 import (
+	"context"
 	"github.com/gotomicro/ecron/internal/task"
+	"time"
 )
 
 type EventType string
 
-type Event struct {
-	Type EventType
-}
-
 const (
-	// EventTypeWaiting 等待当前正在执行的任务运行完成
-	EventTypeWaiting = "waiting"
-	// EventTypeFailed 当前正在执行的任务运行失败
-	EventTypeFailed = "failed"
-	// EventTypeSuccess 当前正在执行的任务运行成功
-	EventTypeSuccess = "success"
+	ExecuteReady   EventType = "ready"
+	ExecuteWaiting EventType = "waiting"
+	ExecuteRunning EventType = "running"
+	ExecuteSuccess EventType = "success"
+	ExecuteFailed  EventType = "failed"
 )
+
+type Event struct {
+	Type  EventType     // 事件类型
+	Delay time.Duration // 下一次查询的时间
+}
 
 // Executor 执行器，它是用户任务逻辑在该系统的映射
 type Executor interface {
 	// Execute 执行任务
-	Execute(t *task.Task) (<-chan Event, error)
+	Execute(ctx context.Context, t *task.Task) Event
 }

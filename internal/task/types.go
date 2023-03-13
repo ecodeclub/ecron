@@ -3,7 +3,7 @@ package task
 type Type string
 
 const (
-	TypeHTTP Type = "http_task"
+	TypeHTTP = "http_task"
 )
 
 type EventType string
@@ -21,24 +21,26 @@ const (
 	EventTypeFailed = "failed"
 	// EventTypeSuccess 任务运行成功
 	EventTypeSuccess = "success"
+	// EventTypeInit 任务创建成功
+	EventTypeInit = "init"
 )
 
 type Config struct {
-	Name  string
-	Cron  string
-	Type  Type
-	Retry struct {
-		Need  bool
-		Count int
-	}
-	Executor []byte
+	Name       string
+	Cron       string
+	Type       Type
+	Parameters string
 }
 
+// Task 实际上这个表示的是任务的执行信息
+// 通过TaskId关联任务详情ßßß
 type Task struct {
 	Config
+	TaskId int64
+	Epoch  int64
 }
 
 type Event struct {
-	TaskName string
-	Type     EventType
+	Task
+	Type EventType
 }

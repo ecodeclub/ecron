@@ -5,6 +5,7 @@ import "time"
 type RetryStrategy interface {
 	Next() (time.Duration, bool)
 	GetMaxRetry() int64
+	GetCntRetry() int64
 }
 
 type RefreshIntervalRetry struct {
@@ -20,4 +21,8 @@ func (r *RefreshIntervalRetry) Next() (time.Duration, bool) {
 
 func (r *RefreshIntervalRetry) GetMaxRetry() int64 {
 	return r.Max
+}
+
+func (r *RefreshIntervalRetry) GetCntRetry() int64 {
+	return r.cnt
 }

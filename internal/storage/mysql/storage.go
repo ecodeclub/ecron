@@ -2,11 +2,12 @@ package mysql
 
 import (
 	"context"
+	"errors"
 	"log"
+	"math/rand"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/google/uuid"
 	"github.com/gotomicro/ecron/internal/errs"
 	"github.com/gotomicro/ecron/internal/storage"
 	"github.com/gotomicro/ecron/internal/task"
@@ -20,8 +21,8 @@ type Storage struct {
 	refreshInterval   time.Duration         // 发起任务抢占续约时间间隔
 	preemptionTimeout time.Duration         // 抢占任务超时时间
 	refreshRetry      storage.RetryStrategy // 续约重试策略
-	payLoad           int64                 // 当前storage节点的载荷
-	uuid              uint32                // 唯一标识一个storage
+	payLoad           int64                 // 当前storage节点的负载
+	storageId         int64                 // 唯一标识一个storage
 	events            chan storage.Event
 }
 
@@ -42,10 +43,17 @@ func NewMysqlStorage(dsn string, opt ...option.Option[Storage]) (*Storage, error
 			Interval: time.Second,
 			Max:      3,
 		},
-		uuid: uuid.New().ID(),
 	}
 	option.Apply[Storage](s, opt...)
 
+	// db创建一条该storage记录
+	sId, err := eorm.NewInserter[StorageInfo](db).Columns("Payload").Values(&StorageInfo{Payload: 0}).
+		Exec(context.TODO()).LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	s.storageId = sId
 	return s, nil
 }
 
@@ -77,6 +85,9 @@ func (s *Storage) Get(ctx context.Context, taskId int64) (*task.Task, error) {
 	ts, err := eorm.NewSelector[TaskInfo](s.db).From(eorm.TableOf(&TaskInfo{}, "t1")).
 		Where(eorm.C("Id").EQ(taskId)).
 		Get(ctx)
+	if err == eorm.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +110,8 @@ func (s *Storage) Add(ctx context.Context, t *task.Task) (int64, error) {
 		SchedulerStatus: storage.EventTypeCreated,
 		Type:            string(t.Type),
 		Config:          t.Parameters,
-		BaseColumns: BaseColumns{
-			CreateTime: time.Now().UnixMilli(),
-			UpdateTime: time.Now().UnixMilli(),
-		},
+		CreateTime:      time.Now().UnixMilli(),
+		UpdateTime:      time.Now().UnixMilli(),
 	}).Exec(ctx).LastInsertId()
 	if err != nil {
 		return -1, errs.NewAddTaskError(err)
@@ -115,10 +124,8 @@ func (s *Storage) AddExecution(ctx context.Context, taskId int64) (int64, error)
 	id, err := eorm.NewInserter[TaskExecution](s.db).Values(&TaskExecution{
 		ExecuteStatus: task.EventTypeInit,
 		TaskId:        taskId,
-		BaseColumns: BaseColumns{
-			CreateTime: time.Now().UnixMilli(),
-			UpdateTime: time.Now().UnixMilli(),
-		},
+		CreateTime:    time.Now().UnixMilli(),
+		UpdateTime:    time.Now().UnixMilli(),
 	}).Exec(ctx).LastInsertId()
 	if err != nil {
 		return -1, errs.NewAddTaskError(err)
@@ -130,7 +137,7 @@ func (s *Storage) CompareAndUpdateTaskStatus(ctx context.Context, taskId int64, 
 	cond := eorm.C("Id").EQ(taskId).And(eorm.C("SchedulerStatus").EQ(old))
 	ra, err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{
 		SchedulerStatus: new,
-		BaseColumns:     BaseColumns{UpdateTime: time.Now().UnixMilli()},
+		UpdateTime:      time.Now().UnixMilli(),
 	}).Set(eorm.Columns("SchedulerStatus", "UpdateTime")).Where(cond).Exec(ctx).RowsAffected()
 	if err != nil {
 		return errs.NewCompareAndUpdateDbError(err)
@@ -145,7 +152,7 @@ func (s *Storage) CompareAndUpdateTaskExecutionStatus(ctx context.Context, taskI
 	cond := eorm.C("TaskId").EQ(taskId).And(eorm.C("ExecuteStatus").EQ(old))
 	ra, err := eorm.NewUpdater[TaskExecution](s.db).Update(&TaskExecution{
 		ExecuteStatus: new,
-		BaseColumns:   BaseColumns{UpdateTime: time.Now().UnixMilli()},
+		UpdateTime:    time.Now().UnixMilli(),
 	}).Set(eorm.Columns("ExecuteStatus", "UpdateTime")).Where(cond).Exec(ctx).RowsAffected()
 	if err != nil {
 		return errs.NewCompareAndUpdateDbError(err)
@@ -157,14 +164,32 @@ func (s *Storage) CompareAndUpdateTaskExecutionStatus(ctx context.Context, taskI
 }
 
 func (s *Storage) Update(ctx context.Context, t *task.Task) error {
+	var setCols []eorm.Assignable
+	if t.Name != "" {
+		setCols = append(setCols, eorm.C("Name"))
+	}
+	if t.Cron != "" {
+		setCols = append(setCols, eorm.C("Cron"))
+	}
+	if t.Type != "" {
+		setCols = append(setCols, eorm.C("Type"))
+	}
+	if t.Parameters != "" {
+		setCols = append(setCols, eorm.C("Config"))
+	}
+	if len(setCols) == 0 {
+		return errors.New("ecron: Update操作执行时没有变化的字段")
+	}
+	setCols = append(setCols, eorm.C("UpdateTime"))
+	updateTask := &TaskInfo{
+		Name:       t.Name,
+		Cron:       t.Cron,
+		Type:       string(t.Type),
+		Config:     t.Parameters,
+		UpdateTime: time.Now().UnixMilli(),
+	}
 	return eorm.NewUpdater[TaskInfo](s.db).
-		Update(&TaskInfo{
-			Name:        t.Name,
-			Cron:        t.Cron,
-			Type:        string(t.Type),
-			Config:      t.Parameters,
-			BaseColumns: BaseColumns{UpdateTime: time.Now().UnixMilli()},
-		}).Where(eorm.C("Id").EQ(t.TaskId)).Exec(ctx).Err()
+		Update(updateTask).Set(setCols...).Where(eorm.C("Id").EQ(t.TaskId)).Exec(ctx).Err()
 }
 
 func (s *Storage) Delete(ctx context.Context, taskId int64) error {
@@ -196,18 +221,20 @@ func (s *Storage) preempted(ctx context.Context) {
 	}()
 
 	maxRefreshInterval := s.refreshRetry.GetMaxRetry() * s.refreshInterval.Milliseconds()
+
 	// 1. 长时间没有续约的已经抢占的任务
 	cond1 := eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted).
 		And(eorm.C("UpdateTime").LTEQ(time.Now().UnixMilli() - maxRefreshInterval))
 	// 2. 处于创建状态
 	cond2 := eorm.C("SchedulerStatus").EQ(storage.EventTypeCreated)
 	// 3. 占有者主动放弃(续约时会检查是否需要放弃)，且候选者是当前storage
-	cond3 := eorm.C("SchedulerStatus").EQ(storage.EventTypeDiscarded).And(eorm.C("CandidateId").EQ(s.uuid))
+	cond3 := eorm.C("SchedulerStatus").EQ(storage.EventTypeDiscarded).And(eorm.C("CandidateId").EQ(s.storageId))
+
 	tasks, err := eorm.NewSelector[TaskInfo](s.db).From(eorm.TableOf(&TaskInfo{}, "t1")).
 		Where(cond1.Or(cond2).Or(cond3)).
 		GetMulti(tCtx)
 	if err != nil {
-		log.Println("获取待抢占任务失败", err)
+		log.Println("ecron: 获取待抢占任务失败", err)
 		return
 	}
 
@@ -215,72 +242,125 @@ func (s *Storage) preempted(ctx context.Context) {
 		preemptedEvent := storage.Event{
 			Type: storage.EventTypePreempted,
 			Task: &task.Task{
-				Config: task.Config{
-					Name:       item.Name,
-					Cron:       item.Cron,
-					Type:       task.Type(item.Type),
-					Parameters: item.Config,
-				},
+				Config: task.Config{Name: item.Name, Cron: item.Cron, Type: task.Type(item.Type), Parameters: item.Config},
 				TaskId: item.Id,
 			},
 		}
 
 		err = s.CompareAndUpdateTaskStatus(tCtx, item.Id, item.SchedulerStatus, storage.EventTypePreempted)
 		if err != nil {
-			log.Println(err)
-			continue
-		}
-		s.payLoad += 1
-		// 这里需要更新已经抢占该任务的占有storage载荷
-		// TODO 合并更新状态函数，减少修改次数
-		err = s.UpdateOccupierPayload(ctx, item.Id, s.payLoad, true)
-		if err != nil {
-			log.Println("ecron: update occupier payload error: ", err)
+			log.Println("ecron: 抢占CAS操作错误，", err)
 			continue
 		}
 
-		s.events <- preemptedEvent
+		s.payLoad += 1
+		// 这里需要更新已经抢占该任务的占有storage负载
+		err = s.updatePayload(ctx, s.payLoad, true)
+		if err != nil {
+			log.Println("ecron: 更新占有者负载时出现错误: ", err)
+			continue
+		}
+
+		select {
+		case <-tCtx.Done():
+			log.Printf("ecron: 抢占任务ID: %d 超时退出", item.Id)
+		case s.events <- preemptedEvent:
+		}
 	}
 }
 
-// 定时更新已被其它storage抢占任务的候选者节点载荷
+// 定时检查task的候选者是否需要更新当前storage
 func (s *Storage) lookup(ctx context.Context) {
 	var updateTaskIds []any
-	tasks, _ := eorm.NewSelector[TaskInfo](s.db).From(eorm.TableOf(&TaskInfo{}, "t1")).
-		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted).And(eorm.C("OccupierId").NEQ(s.uuid))).
+	tasks, err := eorm.NewSelector[TaskInfo](s.db).From(eorm.TableOf(&TaskInfo{}, "t1")).
+		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted).
+				And(eorm.C("OccupierId").NEQ(s.storageId))).
+		Limit(20). // 这里限制下更新的任务数，防止任务数过多导致的性能问题
 		GetMulti(ctx)
+	if err != nil {
+		log.Printf("ecron: 更新候选者负载时，获取待更新任务时出错: %s", err)
+	}
+
+	storageIds := make([]any, 0, len(tasks))
 	for _, t := range tasks {
-		if t.CandidatePayload > s.payLoad {
+		storageIds = append(storageIds, t.Id)
+	}
+	payloads, err := s.getPayload(ctx, storageIds)
+	if err != nil {
+		log.Println("ecron: ")
+		return
+	}
+
+	for _, t := range tasks {
+		occupierPayload, ok := payloads[t.OccupierId]
+		if !ok {
+			log.Println("ecron: 找不到storage id：", t.OccupierId)
+			continue
+		}
+		candidatePayload, ok := payloads[t.CandidateId]
+		if !ok {
+			log.Println("ecron: 找不到storage id：", t.OccupierId)
+			continue
+		}
+		// 获取要更新候选者为当前storage的task
+		// 1. 如果task无候选者：
+		//	- 比较task的占有者的负载是不是比当前storage的负载大，是的话就加入当前storage id到task的候选者中
+		// 2. 如果task有候选者：
+		// - 和候选者比较当前storage的负载，谁小就更新成谁。保险起见也一起比较下占有者负载，候选者不管怎样都得小于占有者，否则候选者置空
+		if t.CandidateId == 0 && occupierPayload > s.payLoad {
+			updateTaskIds = append(updateTaskIds, t.Id)
+		}
+		if t.CandidateId != 0 && candidatePayload > s.payLoad && occupierPayload > candidatePayload {
 			updateTaskIds = append(updateTaskIds, t.Id)
 		}
 	}
-	err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{
-		CandidatePayload: s.payLoad,
-		CandidateId:      s.uuid,
-	}).Set(eorm.C("CandidatePayload"), eorm.C("CandidateId")).
-		Where(eorm.C("Id").In(updateTaskIds...)).Exec(ctx).Err()
+	// 写入候选者为当前storage到task
+	err = s.updateCandidate(ctx, updateTaskIds)
 	if err != nil {
-		log.Println("ecron: update candidate payload fail, ", err)
+		log.Println("ecron: 更新候选者负载出错: ", err)
 	}
 }
 
-func (s *Storage) UpdateOccupierPayload(ctx context.Context, taskId, payload int64, setCandidateNull bool) error {
-	sc := []eorm.Assignable{eorm.C("OccupierPayload"), eorm.C("OccupierId")}
+func (s *Storage) getPayload(ctx context.Context, storageIds []any) (map[int64]int64, error) {
+	payloads := make(map[int64]int64, 16)
+	info, err := eorm.NewSelector[StorageInfo](s.db).Select(eorm.C("Id"), eorm.C("Payload")).
+		Where(eorm.C("Id").In(storageIds...)).GetMulti(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range info {
+		if _, ok := payloads[item.Id]; !ok {
+			payloads[item.Id] = item.Payload
+		}
+	}
+	return payloads, nil
+}
+
+func (s *Storage) updateCandidate(ctx context.Context, taskIds []any) error {
+	ra, err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{CandidateId: s.storageId}).
+		Set(eorm.C("CandidateId")).Where(eorm.C("Id").In(taskIds...)).Exec(ctx).RowsAffected()
+	if err != nil {
+		return err
+	}
+	log.Printf("ecron: 有%d个任务更新候选者为：%d", ra, s.storageId)
+	return nil
+}
+
+func (s *Storage) updatePayload(ctx context.Context, payload int64, setCandidateNull bool) error {
+	err := eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: payload}).Set(eorm.C("PayLoad")).
+		Where(eorm.C("StorageId").EQ(s.storageId)).Exec(ctx).Err()
+	if err != nil {
+		return err
+	}
 	if setCandidateNull {
-		sc = append(sc, eorm.C("CandidatePayload"))
+		err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{CandidateId: 0}).Set(eorm.C("CandidateId")).Exec(ctx).Err()
+		if err != nil {
+			return err
+		}
 	}
-	return eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{
-		OccupierPayload:  payload,
-		OccupierId:       s.uuid,
-		CandidatePayload: 0,
-	}).Set(sc...).Where(eorm.C("Id").EQ(taskId)).Exec(ctx).Err()
-}
-
-func (s *Storage) UpdateCandidatesPayload(ctx context.Context, taskId, payload int64) error {
-	return eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{
-		CandidatePayload: payload,
-		CandidateId:      s.uuid,
-	}).Set(eorm.C("CandidatePayload"), eorm.C("CandidateId")).Where(eorm.C("Id").EQ(taskId)).Exec(ctx).Err()
+	return nil
 }
 
 func (s *Storage) Events(ctx context.Context, taskEvents <-chan task.Event) (<-chan storage.Event, error) {
@@ -315,44 +395,47 @@ func (s *Storage) Events(ctx context.Context, taskEvents <-chan task.Event) (<-c
 
 // Refresh 获取所有已经抢占的任务，并更新时间和epoch
 // 目前epoch仅作为续约持续时间的评估
-func (s *Storage) refresh(ctx context.Context, taskId, epoch, candidatePayload int64) {
+func (s *Storage) refresh(ctx context.Context, taskId, epoch, candidateId int64) {
 	var (
-		timer *time.Timer
-		sc    []eorm.Assignable
+		timer    *time.Timer
+		sc       []eorm.Assignable
+		newEpoch int64 = epoch
 	)
 	sc = append(sc, eorm.Assign("Epoch", eorm.C("Epoch").Add(1)), eorm.C("UpdateTime"))
 	for {
-		epoch++
+		newEpoch++
 		log.Printf("taskId: %d storage begin refresh preempted task", taskId)
-		// 此时修改该任务状态为放弃
-		if s.payLoad > candidatePayload {
+		// 根据候选者负载决定是否需要发起该任务，如果决定放弃就修改该任务状态为discard
+		if s.isNeedDiscard(ctx, candidateId) {
 			sc = append(sc, eorm.C("SchedulerStatus"))
 		}
 		rowsAffect, err := eorm.NewUpdater[TaskInfo](s.db).
 			Update(&TaskInfo{
-				Epoch:           epoch,
+				Epoch:           newEpoch,
 				SchedulerStatus: storage.EventTypeDiscarded,
-				BaseColumns:     BaseColumns{UpdateTime: time.Now().UnixMilli()},
+				UpdateTime:      time.Now().UnixMilli(),
 			}).Set(sc...).Where(eorm.C("Id").EQ(taskId).
-			And(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted))).Exec(ctx).RowsAffected()
+			And(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
+			And(eorm.C("Epoch").EQ(epoch))).Exec(ctx).RowsAffected()
 
-		// 1. 续约成功
+		// 1. 续约成功，退出该任务的续约，等待下一次到时间续约
+		// 2. 获取的任务抢占状态改变，即已放弃了任务，终止这次续约，等待下一次到时间续约
 		if err == nil {
 			log.Printf("taskId: %d refresh success, 第%d次", taskId, epoch)
 			return
 		}
-		// 2. 获取的任务抢占状态改变，终止续约
 		if rowsAffect == 0 {
 			log.Printf("taskId: %d refresh stop, 第%d次", taskId, epoch)
 			return
 		}
+
+		// 这里意味续约失败，进行重试
 		interval, ok := s.refreshRetry.Next()
 		if !ok {
 			log.Printf("taskId: %d refresh preempted fail, %s", taskId, err)
 			return
 		}
 
-		// 若续约失败，重试
 		if timer == nil {
 			timer = time.NewTimer(interval)
 		} else {
@@ -360,7 +443,9 @@ func (s *Storage) refresh(ctx context.Context, taskId, epoch, candidatePayload i
 		}
 		select {
 		case <-timer.C:
+			log.Printf("ecron: 续约开始第%d次重试", s.refreshRetry.GetCntRetry())
 		case <-ctx.Done():
+			log.Printf("ecron: 续约终止，%s", ctx.Err())
 			return
 		}
 	}
@@ -377,8 +462,26 @@ func (s *Storage) AutoRefresh(ctx context.Context) {
 				Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
 				GetMulti(ctx)
 			for _, t := range tasks {
-				go s.refresh(ctx, t.Id, t.Epoch, t.CandidatePayload)
+				go s.refresh(ctx, t.Id, t.Epoch, t.CandidateId)
 			}
 		}
 	}
+}
+
+func (s *Storage) isNeedDiscard(ctx context.Context, candidateId int64) bool {
+	sInfo, err := eorm.NewSelector[StorageInfo](s.db).Select(eorm.C("Payload")).Where(eorm.C("Id").EQ(candidateId)).Get(ctx)
+	if err != nil {
+		return true
+	}
+	rand.Seed(time.Now().UnixNano())
+	tolerance := rand.Int63n(6)
+	// 避免抢占抖动，随机一个范围[s.payLoad-3, s.payLoad+3]的范围
+	return sInfo.Payload < s.payLoad+tolerance-3
+}
+
+// Stop storage的关闭, 这里终止所有正在执行的任务
+func (s *Storage) Stop(ctx context.Context) error {
+	return eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{
+		Status: storage.Stop,
+	}).Set(eorm.Columns("SchedulerStatus", "UpdateTime")).Where(eorm.C("Id").EQ(s.storageId)).Exec(ctx).Err()
 }

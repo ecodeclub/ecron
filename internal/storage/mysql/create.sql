@@ -1,4 +1,6 @@
-create table task_info
+create database if not exists `ecron`;
+
+create table if not EXISTS `task_info`
 (
     id                int auto_increment
         primary key,
@@ -8,10 +10,8 @@ create table task_info
     type              varchar(32)   not null comment '任务类型',
     config            text          not null comment '执行配置',
     epoch             int default 0 not null comment '调度状态改变轮次',
-    occupier_id       int null comment '占有该任务的storage',
-    occupier_payload  int  null comment '占有该任务的storage的载荷',
-    candidate_id      int null comment '该任务的候选storage',
-    candidate_payload int  null comment '该任务的候选storage的载荷',
+    occupier_id       bigint null comment '占有该任务的storage',
+    candidate_id      bigint null comment '该任务的候选storage',
     create_time       bigint        not null,
     update_time       bigint        not null
 )
@@ -20,7 +20,7 @@ create table task_info
 create index task_info_update_time_index
     on task_info (update_time);
 
-create table task_execution
+create table if not EXISTS `task_execution`
 (
     id             int auto_increment
         primary key,
@@ -34,3 +34,11 @@ create table task_execution
 create index index_task_id
     on task_execution (id, task_id);
 
+
+create table storage_info
+(
+    id      int auto_increment
+        primary key,
+    payload int default 0 null,
+    status  varchar(16)   null
+);

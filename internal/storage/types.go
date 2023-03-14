@@ -17,6 +17,8 @@ const (
 	EventTypeRunnable  = "runnable"
 	EventTypeEnd       = "end"
 	EventTypeDiscarded = "discarded"
+
+	Stop = "stop"
 )
 
 type Storager interface {

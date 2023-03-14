@@ -1,6 +1,6 @@
 package client
 
-import "github.com/gotomicro/ecron/internal/executor"
+import "github.com/ecodeclub/ecron/internal/executor"
 
 type ClientMode int
 

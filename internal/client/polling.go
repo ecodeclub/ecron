@@ -1,7 +1,7 @@
 package client
 
 import (
-	"github.com/gotomicro/ecron/internal/executor"
+	"github.com/ecodeclub/ecron/internal/executor"
 )
 
 type Polling struct {

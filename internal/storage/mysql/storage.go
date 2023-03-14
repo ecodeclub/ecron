@@ -5,12 +5,12 @@ import (
 	"log"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/errs"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
+	"github.com/ecodeclub/eorm"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gotomicro/ecron/internal/errs"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
 	"github.com/gotomicro/ekit/bean/option"
-	"github.com/gotomicro/eorm"
 )
 
 type Storage struct {
@@ -69,7 +69,7 @@ func WithPreemptTimeout(t time.Duration) option.Option[Storage] {
 }
 
 func (s *Storage) Get(ctx context.Context, taskId int64) (*task.Task, error) {
-	ts, err := eorm.NewSelector[TaskInfo](s.db).From(&TaskInfo{}).
+	ts, err := eorm.NewSelector[TaskInfo](s.db).
 		Where(eorm.C("Id").EQ(taskId)).
 		Get(ctx)
 	if err != nil {
@@ -176,7 +176,8 @@ func (s *Storage) RunPreempt(ctx context.Context) {
 		case <-tickerP.C:
 			log.Println("storage begin preempt task")
 			s.preempted(ctx)
-		default:
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -190,7 +191,7 @@ func (s *Storage) preempted(ctx context.Context) {
 		cancel()
 	}()
 	maxRefreshInterval := s.refreshRetry.GetMaxRetry() * s.refreshInterval.Milliseconds()
-	tasks, err := eorm.NewSelector[TaskInfo](s.db).From(&TaskInfo{}).
+	tasks, err := eorm.NewSelector[TaskInfo](s.db).
 		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypeCreated).Or(
 			eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted).
 				And(eorm.C("UpdateTime").LTEQ(time.Now().UnixMilli() - maxRefreshInterval)))).
@@ -321,8 +322,7 @@ LOOP:
 func (s *Storage) AutoRefresh(ctx context.Context) {
 	// 获取当前出去抢占状态的任务，需要在后续任务变成非抢占状态时结束续约
 	tasks, _ := eorm.NewSelector[TaskInfo](s.db).
-		Select().From(&TaskInfo{}).
-		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
+		Select().Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted)).
 		GetMulti(ctx)
 
 	for _, t := range tasks {

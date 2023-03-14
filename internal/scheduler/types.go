@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/executor"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/gorhill/cronexpr"
-	"github.com/gotomicro/ecron/internal/executor"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
 	"github.com/gotomicro/ekit/queue"
 )
 

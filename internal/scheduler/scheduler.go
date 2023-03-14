@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/executor"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/gorhill/cronexpr"
-	"github.com/gotomicro/ecron/internal/executor"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
 	"github.com/gotomicro/ekit/queue"
 )
 
@@ -219,5 +219,4 @@ func (r *scheduledTask) run(ec chan<- executeEvent) {
 	case <-r.ctx.Done(): // 利用ctx避免泄露 控制结束
 		log.Printf(`task(%v) 收到ctx结束信号`, r.task.TaskId)
 	}
-	return
 }

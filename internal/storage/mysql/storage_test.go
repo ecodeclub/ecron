@@ -57,24 +57,17 @@ func Test_StorageTaskCURD(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Nil(t, getDelTask)
 
-	// 停止storage
 	err = s.Stop(context.TODO())
 	assert.Nil(t, err)
 
 	_ = eorm.NewDeleter[StorageInfo](s.db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO())
 }
 
-// 测试场景-单个storage抢占
-//
-//	单个storage，确定一下对应条件的任务能否被抢占
-//		- 任务由于负载问题被放弃
-//		- 任务由于处于刚创建的状态
-//		- 任务处于抢占状态，几个续约周期内没有续约
+// 单个storage抢占
 func TestStorage_SinglePreempt(t *testing.T) {
 	var (
-		st    *Storage
-		tasks []int64
-		db    *eorm.DB
+		st *Storage
+		db *eorm.DB
 	)
 
 	db, err := eorm.Open("mysql", "root:@tcp(localhost:3306)/ecron")
@@ -82,36 +75,30 @@ func TestStorage_SinglePreempt(t *testing.T) {
 
 	testCases := []struct {
 		name                 string
-		wantType             storage.EventType
+		wantType             string
 		before               func()
 		after                func()
 		wantOccupierPayload  int64
 		wantCandidatePayload int64
-		wantOccupierId       uint32
-		wantCandidateId      uint32
+		wantCandidateId      int64
 	}{
 		{
 			name: "抢占处于创建的状态的任务",
 			before: func() {
 				st, _ = newMysqlStorage(db)
 				for i := 0; i < 2; i++ {
-					tId, err := eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
+					_ = eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
 						Name:            "test task",
 						Cron:            "*/5 * * * * * *",
 						SchedulerStatus: storage.EventTypeCreated,
-						CreateTime:      time.Now().UnixMilli(),
-						UpdateTime:      time.Now().UnixMilli(),
-					}).Exec(context.TODO()).LastInsertId()
-					if err == nil {
-						tasks = append(tasks, tId)
-					}
+						CreateTime:      time.Now().Unix(),
+						UpdateTime:      time.Now().Unix(),
+					}).Exec(context.TODO()).Err()
 				}
 			},
 			after: func() {
-				for _, tId := range tasks {
-					_ = eorm.NewDeleter[TaskInfo](st.db).From(&TaskInfo{}).Where(eorm.C("Id").EQ(tId)).Exec(context.TODO())
-				}
-				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(st.storageId)).Exec(context.TODO())
+				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Exec(context.TODO())
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
 			},
 			wantType:            storage.EventTypePreempted,
 			wantOccupierPayload: 2,
@@ -121,23 +108,18 @@ func TestStorage_SinglePreempt(t *testing.T) {
 			before: func() {
 				st, _ = newMysqlStorage(db)
 				for i := 0; i < 2; i++ {
-					tId, err := eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
+					_ = eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
 						Name:            "test task",
 						SchedulerStatus: storage.EventTypeDiscarded,
 						CandidateId:     st.storageId,
-						CreateTime:      time.Now().UnixMilli(),
-						UpdateTime:      time.Now().UnixMilli(),
-					}).Exec(context.TODO()).LastInsertId()
-					if err == nil {
-						tasks = append(tasks, tId)
-					}
+						CreateTime:      time.Now().Unix(),
+						UpdateTime:      time.Now().Unix(),
+					}).Exec(context.TODO()).Err()
 				}
 			},
 			after: func() {
-				for _, tId := range tasks {
-					_ = eorm.NewDeleter[TaskInfo](st.db).From(&TaskInfo{}).Where(eorm.C("Id").EQ(tId)).Exec(context.TODO())
-				}
-				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(st.storageId)).Exec(context.TODO())
+				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Exec(context.TODO())
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
 			},
 			wantType:            storage.EventTypePreempted,
 			wantOccupierPayload: 2,
@@ -148,24 +130,18 @@ func TestStorage_SinglePreempt(t *testing.T) {
 				retry := &storage.RefreshIntervalRetry{Interval: time.Second, Max: 3}
 				st, _ = newMysqlStorage(db, WithRefreshRetry(retry))
 				for i := 0; i < 2; i++ {
-					tId, err := eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
+					_ = eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
 						Name:            "test task",
 						SchedulerStatus: storage.EventTypePreempted,
 						OccupierId:      st.storageId,
 						// 模拟续约超时
-						UpdateTime: time.Now().Unix() - (retry.GetMaxRetry()+1000)*int64(retry.Interval.Seconds()),
-					}).Exec(context.TODO()).LastInsertId()
-					if err == nil {
-						tasks = append(tasks, tId)
-					}
+						UpdateTime: time.Now().Unix() - (retry.GetMaxRetry()+1000)*retry.Interval.Milliseconds(),
+					}).Exec(context.TODO()).Err()
 				}
 			},
 			after: func() {
-				for _, tId := range tasks {
-					_ = eorm.NewDeleter[TaskInfo](st.db).From(&TaskInfo{}).Where(eorm.C("Id").EQ(tId)).Exec(context.TODO())
-				}
-				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(st.storageId)).Exec(context.TODO())
-
+				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Exec(context.TODO())
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
 			},
 			wantType:            storage.EventTypePreempted,
 			wantOccupierPayload: 2,
@@ -180,7 +156,6 @@ func TestStorage_SinglePreempt(t *testing.T) {
 			for {
 				select {
 				case e := <-st.events:
-					assert.Equal(t, tc.wantType, e.Type)
 					taskIds = append(taskIds, e.Task.TaskId)
 					if len(taskIds) == 2 {
 						break LOOP
@@ -189,9 +164,11 @@ func TestStorage_SinglePreempt(t *testing.T) {
 			}
 			for _, tId := range taskIds {
 				taskDb := getDbTask(db, tId)
-				occupierStorageInfo := getStorageInfo(st, taskDb.OccupierId)
-				assert.Equal(t, tc.wantOccupierPayload, occupierStorageInfo.Payload)
+				occupierPayload := st.getOccupierPayload(context.TODO(), st.storageId)
+				assert.Equal(t, tc.wantOccupierPayload, occupierPayload)
 				assert.Equal(t, st.storageId, taskDb.OccupierId)
+				assert.Equal(t, tc.wantType, taskDb.SchedulerStatus)
+				assert.Equal(t, tc.wantCandidateId, taskDb.CandidateId)
 			}
 			tc.after()
 		})
@@ -199,6 +176,7 @@ func TestStorage_SinglePreempt(t *testing.T) {
 }
 
 // 任务续约。eorm.openDB是私有，暂无法覆盖所有场景
+
 func TestStorage_Refresh(t *testing.T) {
 	db, err := eorm.Open("mysql", "root:@tcp(localhost:3306)/ecron")
 	assert.Nil(t, err)
@@ -206,10 +184,12 @@ func TestStorage_Refresh(t *testing.T) {
 	var taskId int64
 	s, _ := newMysqlStorage(db, WithRefreshInterval(5*time.Second))
 	testCases := []struct {
-		name      string
-		before    func()
-		after     func()
-		wantEpoch int64
+		name       string
+		before     func()
+		after      func()
+		wantEpoch  int64
+		wantRetry  int64
+		wantStatus string
 	}{
 		{
 			name: "一次续约即成功",
@@ -218,15 +198,32 @@ func TestStorage_Refresh(t *testing.T) {
 					Name:            "test task",
 					SchedulerStatus: storage.EventTypePreempted,
 					OccupierId:      s.storageId,
-					CreateTime:      time.Now().UnixMilli(),
-					UpdateTime:      time.Now().UnixMilli(),
+					CreateTime:      time.Now().Unix(),
+					UpdateTime:      time.Now().Unix(),
 				}).Exec(context.TODO()).LastInsertId()
 			},
 			after: func() {
-				_ = eorm.NewDeleter[TaskInfo](s.db).From(&TaskInfo{}).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO())
-				_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO())
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
 			},
 			wantEpoch: 1,
+		},
+		{
+			name: "续约时放弃任务",
+			before: func() {
+				taskId, _ = eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
+					Name:            "test task",
+					SchedulerStatus: storage.EventTypePreempted,
+					OccupierId:      s.storageId,
+					CandidateId:     123,
+					CreateTime:      time.Now().Unix(),
+					UpdateTime:      time.Now().Unix(),
+				}).Exec(context.TODO()).LastInsertId()
+			},
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
+			},
+			wantEpoch:  1,
+			wantStatus: storage.EventTypeDiscarded,
 		},
 		//{
 		//	name: "多次续约才成功",
@@ -249,14 +246,19 @@ func TestStorage_Refresh(t *testing.T) {
 			assert.Equal(t, taskId, tskBefore.Id)
 			s.refresh(context.TODO(), tskBefore.Id, tskBefore.Epoch, tskBefore.CandidateId)
 			tskAfter := getDbTask(db, taskId)
-			assert.Equal(t, tskAfter.Epoch, tc.wantEpoch)
-			assert.Equal(t, s.refreshRetry.GetCntRetry(), int64(0))
+			assert.Equal(t, tc.wantEpoch, tskAfter.Epoch)
+			assert.Equal(t, tc.wantRetry, s.refreshRetry.GetCntRetry())
+			if tc.wantStatus != "" {
+				assert.Equal(t, tc.wantStatus, tskAfter.SchedulerStatus)
+			}
 			tc.after()
 		})
 	}
+	_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Exec(context.TODO())
 }
 
 // 任务负载更新(任务均衡) 。确保当前storage，是否按照需求要更新到遍历的任务中
+
 func TestStorage_Lookup(t *testing.T) {
 	db, err := eorm.Open("mysql", "root:@tcp(localhost:3306)/ecron")
 	assert.Nil(t, err)
@@ -264,13 +266,12 @@ func TestStorage_Lookup(t *testing.T) {
 	s2, _ := newMysqlStorage(db)
 	s, _ := newMysqlStorage(db) // 当前storage
 
-	_ = eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
-		Id:              10001,
+	taskId, _ := eorm.NewInserter[TaskInfo](db).Values(&TaskInfo{
 		SchedulerStatus: storage.EventTypePreempted,
 		OccupierId:      s.storageId,
-		CreateTime:      time.Now().UnixMilli(),
-		UpdateTime:      time.Now().UnixMilli(),
-	}).Exec(context.TODO()).Err()
+		CreateTime:      time.Now().Unix(),
+		UpdateTime:      time.Now().Unix(),
+	}).Exec(context.TODO()).LastInsertId()
 
 	testCases := []struct {
 		name            string
@@ -282,120 +283,91 @@ func TestStorage_Lookup(t *testing.T) {
 		{
 			name: "占有者就是当前storage(跳过本次balance)",
 			before: func() {
-				s.payLoad = 9
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 1}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 2}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
 				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
 					CandidateId: 0,
-					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
+					OccupierId:  s.storageId,
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
 			},
 			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
 			},
 			wantCandidateId: 0, // 无候选者
 			wantOccupierId:  s.storageId,
 		},
 		{
-			name: "task无候选者,当前节点比占有节点负载大",
+			name: "task无候选者,当前节点比占有节点负载大，不更新候选者",
 			before: func() {
-				s.payLoad = 9
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 1}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 2}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
 				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
 					CandidateId: 0,
 					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
+				_ = addOccupierTaskN(s, 4)
+				_ = addCandidateTaskN(s, 4)
+				_ = addOccupierTaskN(s1, 1)
+				_ = addOccupierTaskN(s2, 3)
+				_ = addCandidateTaskN(s2, 1)
 			},
-			after:           func() {},
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
+			},
 			wantCandidateId: 0, // 无候选者
 			wantOccupierId:  s1.storageId,
 		},
 		{
-			name: "task无候选者,待选节点比占有节点负载小",
+			name: "task无候选者,待选节点比占有节点负载小, 小的不到2*s.n",
 			before: func() {
-				s.payLoad = 3
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 3}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 8}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
 				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
 					CandidateId: 0,
 					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
+				_ = addOccupierTaskN(s, 1)
+				_ = addCandidateTaskN(s, 3)
+				_ = addOccupierTaskN(s1, 8)
+				_ = addOccupierTaskN(s2, 1)
+				_ = addCandidateTaskN(s2, 1)
 			},
-			after:           func() {},
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
+			},
+			wantCandidateId: 0, // 无候选者
+			wantOccupierId:  s1.storageId,
+		},
+		{
+			name: "task无候选者,待选节点比占有节点负载小, 差值大于2*s.n",
+			before: func() {
+				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
+					CandidateId: 0,
+					OccupierId:  s1.storageId,
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
+				_ = addOccupierTaskN(s1, 8)
+				_ = addOccupierTaskN(s2, 1)
+				_ = addCandidateTaskN(s2, 1)
+			},
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
+			},
 			wantCandidateId: s.storageId,
 			wantOccupierId:  s1.storageId,
 		},
 		{
-			name: "task有候选者,占有者和候选者节点都比当前节点负载小(不替换候选者为当前storage)",
+			name: "task有候选者,不再更新候选者",
 			before: func() {
-				s.payLoad = 9
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 3}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 1}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
 				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
 					CandidateId: s2.storageId,
 					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
+				_ = addOccupierTaskN(s1, 8)
+				_ = addOccupierTaskN(s2, 1)
+				_ = addCandidateTaskN(s2, 1)
 			},
-			after:           func() {},
-			wantCandidateId: s2.storageId,
-			wantOccupierId:  s1.storageId,
-		},
-		{
-			name: "task有候选者,占有者和候选者节点都比当前节点负载大(替换候选者为当前storage)",
-			before: func() {
-				s.payLoad = 3
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 3}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 4}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
-					CandidateId: s2.storageId,
-					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
 			},
-			after:           func() {},
-			wantCandidateId: s.storageId,
-			wantOccupierId:  s1.storageId,
-		},
-		{
-			name: "task有候选者,占有者比当前节点负载小，候选者节点负载比当前节点大(不用当前storage进行候选者替换)",
-			before: func() {
-				s.payLoad = 3
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 4}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 3}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
-					CandidateId: s2.storageId,
-					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
-			},
-			after:           func() {},
-			wantCandidateId: s2.storageId,
-			wantOccupierId:  s1.storageId,
-		},
-		{
-			name: "task有候选者,占有者比当前节点负载大，候选者节点负载比当前节点小(不用当前storage进行候选者替换)",
-			before: func() {
-				s.payLoad = 4
-				_ = eorm.NewUpdater[StorageInfo](s.db).Update(&StorageInfo{Payload: 4}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s1.db).Update(&StorageInfo{Payload: 9}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[StorageInfo](s2.db).Update(&StorageInfo{Payload: 3}).Set(eorm.Columns("Payload")).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO()).Err()
-				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
-					CandidateId: s2.storageId,
-					OccupierId:  s1.storageId,
-					UpdateTime:  time.Now().UnixMilli(),
-				}).Set(eorm.Columns("CandidateId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ("10001")).Exec(context.TODO()).Err()
-			},
-			after:           func() {},
 			wantCandidateId: s2.storageId,
 			wantOccupierId:  s1.storageId,
 		},
@@ -404,7 +376,8 @@ func TestStorage_Lookup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.before()
 			s.lookup(context.TODO())
-			tsk := getDbTask(db, 10001)
+			tsk := getDbTask(db, taskId)
+			assert.Equal(t, tc.wantOccupierId, tsk.OccupierId)
 			assert.Equal(t, tc.wantCandidateId, tsk.CandidateId)
 			tc.after()
 		})
@@ -412,18 +385,7 @@ func TestStorage_Lookup(t *testing.T) {
 	_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(s.storageId)).Exec(context.TODO())
 	_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(s1.storageId)).Exec(context.TODO())
 	_ = eorm.NewDeleter[StorageInfo](db).From(&StorageInfo{}).Where(eorm.C("Id").EQ(s2.storageId)).Exec(context.TODO())
-	_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").EQ(10001)).Exec(context.TODO())
-}
-
-func getStorageInfo(s *Storage, storageId int64) *StorageInfo {
-	ts, err := eorm.NewSelector[StorageInfo](s.db).Select(eorm.C("Id"), eorm.C("Payload")).
-		From(eorm.TableOf(&StorageInfo{}, "t1")).
-		Where(eorm.C("Id").EQ(storageId)).
-		Get(context.TODO())
-	if ts == nil || err != nil {
-		return &StorageInfo{}
-	}
-	return ts
+	_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Exec(context.TODO())
 }
 
 func getDbTask(db *eorm.DB, taskId int64) *TaskInfo {
@@ -431,4 +393,34 @@ func getDbTask(db *eorm.DB, taskId int64) *TaskInfo {
 		Where(eorm.C("Id").EQ(taskId)).
 		Get(context.TODO())
 	return ts
+}
+
+func addOccupierTaskN(s *Storage, n int) []int64 {
+	taskIds := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		tid1, _ := eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
+			Name:            "test task",
+			SchedulerStatus: storage.EventTypePreempted,
+			OccupierId:      s.storageId,
+			CreateTime:      time.Now().Unix(),
+			UpdateTime:      time.Now().Unix(),
+		}).Exec(context.TODO()).LastInsertId()
+		taskIds = append(taskIds, tid1)
+	}
+	return taskIds
+}
+
+func addCandidateTaskN(s *Storage, n int) []int64 {
+	taskIds := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		tid1, _ := eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
+			Name:            "test task",
+			SchedulerStatus: storage.EventTypePreempted,
+			CandidateId:     s.storageId,
+			CreateTime:      time.Now().Unix(),
+			UpdateTime:      time.Now().Unix(),
+		}).Exec(context.TODO()).LastInsertId()
+		taskIds = append(taskIds, tid1)
+	}
+	return taskIds
 }

@@ -23,7 +23,8 @@ type TaskExecution struct {
 }
 
 type StorageInfo struct {
-	Id      int64  `eorm:"auto_increment,primary_key"`
-	Payload int64  // 该storage的负载
-	Status  string // 该storage状态
+	Id               int64  `eorm:"auto_increment,primary_key"`
+	OccupierPayload  int64  // 该storage的占有者负载
+	CandidatePayload int64  // 该storage的候选者负载
+	Status           string // 该storage状态
 }

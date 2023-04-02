@@ -58,8 +58,7 @@ func newMysqlStorage(db *eorm.DB, opt ...option.Option[Storage]) (*Storage, erro
 	option.Apply[Storage](s, opt...)
 
 	// db创建一条该storage记录
-	sId, err := eorm.NewInserter[StorageInfo](db).Columns("OccupierPayload", "CandidatePayload").
-		Values(&StorageInfo{OccupierPayload: 0, CandidatePayload: 0}).
+	sId, err := eorm.NewInserter[StorageInfo](db).Columns("OccupierPayload", "CandidatePayload").Values(&StorageInfo{OccupierPayload: 0, CandidatePayload: 0}).
 		Exec(context.TODO()).LastInsertId()
 	if err != nil {
 		return nil, err
@@ -302,10 +301,6 @@ func (s *Storage) AutoLookup(ctx context.Context) {
 
 // 定时检查task的候选者是否需要更新当前storage
 func (s *Storage) lookup(ctx context.Context) {
-	locker := newLocker("lookup")
-	defer locker.Release()
-	locker.Acquire(ctx)
-
 	var updateTaskIds []any
 	tasks, err := eorm.NewSelector[TaskInfo](s.db).From(eorm.TableOf(&TaskInfo{}, "t1")).
 		Where(eorm.C("SchedulerStatus").EQ(storage.EventTypePreempted).
@@ -314,46 +309,60 @@ func (s *Storage) lookup(ctx context.Context) {
 		log.Printf("ecron: [%d]更新候选者负载时，获取待更新任务时出错: %s", s.storageId, err)
 	}
 
-	// 当前storage作为占有者的负载（task个数）
-	currentOccupierPayload := s.getOccupierPayload(ctx, s.storageId)
-	// 当前storage作为候选者的负载（task个数）
-	currentCandidatePayload := s.getCandidatePayload(ctx, s.storageId)
-
 	var curTaskIndex int64 = 0
 	for _, t := range tasks {
-		oOccupierPayload := s.getOccupierPayload(ctx, t.OccupierId)
-		oCandidatePayload := s.getCandidatePayload(ctx, t.OccupierId)
+		curPayload := s.getPayload(ctx, s.storageId)
 
+		occupierPayload := s.getPayload(ctx, t.OccupierId)
 		// 获取要更新候选者为当前storage的task
 		// 1. 如果task无候选者：
 		//  -  比较task的占有者的负载(候选+占有)是不是比当前storage的负载大，
 		//  -  同时还要保证大的数量是2*n，是的话就加入当前storage id到task的候选者中，并记录已经加入的个数，超过n就不在添加候选者
 		// 2. 如果task有候选者()：
-		//  - 出于简单实现的考虑，不再处理了，因为最终是能达到目标的
+		//  - 比较方式同上，只不过比较的是候选者负载
 		if t.CandidateId == 0 {
-			if oOccupierPayload+oCandidatePayload > (currentOccupierPayload+currentCandidatePayload)+2*s.n && curTaskIndex < s.n {
+			if occupierPayload > curPayload+2*s.n && curTaskIndex < s.n {
 				updateTaskIds = append(updateTaskIds, t.Id)
 				curTaskIndex += 1
+				err = s.updateCandidateCAS(ctx, t.Id, t.OccupierId, t.CandidateId)
+			}
+		} else {
+			candidatePayload := s.getPayload(ctx, t.CandidateId)
+			if candidatePayload > curPayload+2*s.n && curTaskIndex < s.n {
+				updateTaskIds = append(updateTaskIds, t.Id)
+				curTaskIndex += 1
+				err = s.updateCandidateCAS(ctx, t.Id, t.OccupierId, t.CandidateId)
 			}
 		}
-	}
-	if len(updateTaskIds) == 0 {
-		return
-	}
-	// 将当前storage到task的候选者中
-	err = s.updateCandidate(ctx, updateTaskIds)
-	if err != nil {
-		log.Printf("ecron: [%d]更新候选者负载出错: [%s]", s.storageId, err)
+		if err != nil {
+			log.Printf("ecron: task[%d]更新从旧候选者[%d]更新候选者为[%d]出错: [%s]", t.Id,
+				t.CandidateId, s.storageId, err)
+		}
 	}
 }
 
-func (s *Storage) updateCandidate(ctx context.Context, taskIds []any) error {
-	rat, err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{CandidateId: s.storageId}).
-		Set(eorm.C("CandidateId")).Where(eorm.C("Id").In(taskIds...)).Exec(ctx).RowsAffected()
+// 计算指定storage节点的负载
+// 包括作为候选者的负载、作为占有者的负载
+func (s *Storage) getPayload(ctx context.Context, storageId int64) int64 {
+	// 1. 作为候选者的负载
+	cond1 := eorm.C("CandidateId").EQ(storageId)
+	// 2. 作为占有者的负载, 注意这里需要去掉的该storage作为占有者的任务中已经有候选者的任务数
+	cond2 := eorm.C("OccupierId").EQ(storageId).And(eorm.C("CandidateId").EQ(0))
+	info, err := eorm.NewSelector[any](s.db).Select(eorm.Count("Id")).From(eorm.TableOf(&TaskInfo{}, "t1")).
+		Where(cond1.Or(cond2)).Get(ctx)
+	if err != nil {
+		return -1
+	}
+	return (*info).(int64)
+}
+
+func (s *Storage) updateCandidateCAS(ctx context.Context, taskId int64, occupierId int64, candidateId int64) error {
+	casConds := eorm.C("CandidateId").EQ(candidateId).And(eorm.C("OccupierId").EQ(occupierId))
+	err := eorm.NewUpdater[TaskInfo](s.db).Update(&TaskInfo{CandidateId: s.storageId}).
+		Set(eorm.C("CandidateId")).Where(eorm.C("Id").EQ(taskId).And(casConds)).Exec(ctx).Err()
 	if err != nil {
 		return err
 	}
-	log.Printf("ecron: [%d]被更新成候选者的任务数为：%d", s.storageId, rat)
 	return nil
 }
 

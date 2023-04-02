@@ -38,11 +38,5 @@ create table storage_info
 (
     id      int auto_increment
         primary key,
-    payload int default 0 null,
     status  varchar(16)   null
-);
-
-CREATE TABLE `ecron_lock` (
-    `lock_name` varchar(50) NOT NULL COMMENT '锁名称',
-        PRIMARY KEY (`lock_name`)
 );

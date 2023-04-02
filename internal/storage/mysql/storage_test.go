@@ -343,7 +343,7 @@ func TestStorage_Lookup(t *testing.T) {
 					OccupierId:  s1.storageId,
 					UpdateTime:  time.Now().Unix(),
 				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
-				_ = addOccupierTaskN(s1, 8)
+				_ = addOccupierTaskN(s1, 9)
 				_ = addOccupierTaskN(s2, 1)
 				_ = addCandidateTaskN(s2, 1)
 			},
@@ -354,7 +354,7 @@ func TestStorage_Lookup(t *testing.T) {
 			wantOccupierId:  s1.storageId,
 		},
 		{
-			name: "task有候选者,不再更新候选者",
+			name: "task有候选者,待选节点比占有节点负载小, 小的不到2*s.n",
 			before: func() {
 				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
 					CandidateId: s2.storageId,
@@ -369,6 +369,27 @@ func TestStorage_Lookup(t *testing.T) {
 				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
 			},
 			wantCandidateId: s2.storageId,
+			wantOccupierId:  s1.storageId,
+		},
+		{
+			name: "task有候选者,待选节点比占有节点负载小, 差值大于2*s.n",
+			before: func() {
+				_ = eorm.NewUpdater[TaskInfo](db).Update(&TaskInfo{
+					CandidateId: s2.storageId,
+					OccupierId:  s1.storageId,
+					UpdateTime:  time.Now().Unix(),
+				}).Set(eorm.Columns("CandidateId", "OccupierId", "OccupierId", "UpdateTime")).Where(eorm.C("Id").EQ(taskId)).Exec(context.TODO()).Err()
+				_ = addOccupierTaskN(s1, 3)
+				// 给s作为候选者，s1作为占有者增加2个task
+				_ = addOccupierWithCandidateTaskN(s1, s.storageId, 2)
+				_ = addOccupierWithCandidateTaskN(s1, s2.storageId, 4)
+				_ = addOccupierTaskN(s2, 3)
+				_ = addCandidateTaskN(s2, 1)
+			},
+			after: func() {
+				_ = eorm.NewDeleter[TaskInfo](db).From(&TaskInfo{}).Where(eorm.C("Id").NEQ(taskId)).Exec(context.TODO())
+			},
+			wantCandidateId: s.storageId,
 			wantOccupierId:  s1.storageId,
 		},
 	}
@@ -417,6 +438,38 @@ func addCandidateTaskN(s *Storage, n int) []int64 {
 			Name:            "test task",
 			SchedulerStatus: storage.EventTypePreempted,
 			CandidateId:     s.storageId,
+			CreateTime:      time.Now().Unix(),
+			UpdateTime:      time.Now().Unix(),
+		}).Exec(context.TODO()).LastInsertId()
+		taskIds = append(taskIds, tid1)
+	}
+	return taskIds
+}
+
+func addCandidateWithOccupierTaskN(s *Storage, occupierId int64, n int) []int64 {
+	taskIds := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		tid1, _ := eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
+			Name:            "test task",
+			SchedulerStatus: storage.EventTypePreempted,
+			CandidateId:     s.storageId,
+			OccupierId:      occupierId,
+			CreateTime:      time.Now().Unix(),
+			UpdateTime:      time.Now().Unix(),
+		}).Exec(context.TODO()).LastInsertId()
+		taskIds = append(taskIds, tid1)
+	}
+	return taskIds
+}
+
+func addOccupierWithCandidateTaskN(s *Storage, candidateId int64, n int) []int64 {
+	taskIds := make([]int64, 0, n)
+	for i := 0; i < n; i++ {
+		tid1, _ := eorm.NewInserter[TaskInfo](s.db).Values(&TaskInfo{
+			Name:            "test task",
+			SchedulerStatus: storage.EventTypePreempted,
+			CandidateId:     candidateId,
+			OccupierId:      s.storageId,
 			CreateTime:      time.Now().Unix(),
 			UpdateTime:      time.Now().Unix(),
 		}).Exec(context.TODO()).LastInsertId()

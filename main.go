@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/gotomicro/ecron/internal/scheduler"
@@ -20,11 +19,7 @@ func main() {
 	go storeIns.AutoRefresh(ctx)
 
 	sche := scheduler.NewScheduler(storeIns)
-	go func() {
-		if err := sche.Start(ctx); err != nil {
-			log.Println("scheduler 启动失败：", err)
-		}
-	}()
+	go sche.Start(ctx)
 
 	select {}
 }

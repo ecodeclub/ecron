@@ -12,10 +12,13 @@ const (
 	// EventTypePreempted 抢占了一个任务
 	EventTypePreempted = "preempted"
 	// EventTypeDeleted 某一个任务被删除了
-	EventTypeDeleted  = "deleted"
-	EventTypeCreated  = "created"
-	EventTypeRunnable = "runnable"
-	EventTypeEnd      = "end"
+	EventTypeDeleted   = "deleted"
+	EventTypeCreated   = "created"
+	EventTypeRunnable  = "runnable"
+	EventTypeEnd       = "end"
+	EventTypeDiscarded = "discarded"
+
+	Stop = "stop"
 )
 
 type Storager interface {

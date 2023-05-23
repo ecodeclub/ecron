@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/gotomicro/ecron/internal/scheduler"
-	"github.com/gotomicro/ecron/internal/storage/mysql"
+	"github.com/ecodeclub/ecron/internal/scheduler"
+	"github.com/ecodeclub/ecron/internal/storage/mysql"
 )
 
 func main() {
@@ -19,7 +19,8 @@ func main() {
 	go storeIns.AutoRefresh(ctx)
 
 	sche := scheduler.NewScheduler(storeIns)
-	go sche.Start(ctx)
 
-	select {}
+	if err = sche.Start(ctx); err != nil {
+		panic(err)
+	}
 }

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
-	"github.com/gotomicro/eorm"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
+	"github.com/ecodeclub/eorm"
 	"github.com/stretchr/testify/assert"
 )
 

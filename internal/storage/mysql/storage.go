@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/errs"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
+	"github.com/ecodeclub/ekit/bean/option"
+	"github.com/ecodeclub/eorm"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gotomicro/ecron/internal/errs"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
-	"github.com/gotomicro/ekit/bean/option"
-	"github.com/gotomicro/eorm"
 )
 
 type Storage struct {

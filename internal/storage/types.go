@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/gotomicro/ecron/internal/task"
+	"github.com/ecodeclub/ecron/internal/task"
 )
 
 type EventType string

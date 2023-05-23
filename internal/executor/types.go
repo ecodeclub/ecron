@@ -1,7 +1,7 @@
 package executor
 
 import (
-	"github.com/gotomicro/ecron/internal/task"
+	"github.com/ecodeclub/ecron/internal/task"
 )
 
 // Executor 执行器，它是用户任务逻辑在该系统的映射

@@ -4,11 +4,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/executor"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/gorhill/cronexpr"
-	"github.com/gotomicro/ecron/internal/executor"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
-	"github.com/gotomicro/ekit/queue"
+	"github.com/ecodeclub/ekit/queue"
 )
 
 type Scheduler struct {
@@ -35,6 +35,6 @@ type execution struct {
 }
 
 func (e execution) Delay() time.Duration {
-	//return e.time.Sub(time.Now())
+	// return e.time.Sub(time.Now())
 	return time.Until(e.time)
 }

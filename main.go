@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/gotomicro/ecron/internal/scheduler"
-	"github.com/gotomicro/ecron/internal/storage/mysql"
+	"github.com/ecodeclub/ecron/internal/scheduler"
+	"github.com/ecodeclub/ecron/internal/storage/mysql"
 )
 
 func main() {

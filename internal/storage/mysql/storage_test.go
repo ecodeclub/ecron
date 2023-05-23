@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
-	"github.com/gotomicro/eorm"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
+	"github.com/ecodeclub/eorm"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -225,18 +225,18 @@ func TestStorage_Refresh(t *testing.T) {
 			wantEpoch:  1,
 			wantStatus: storage.EventTypeDiscarded,
 		},
-		//{
+		// {
 		//	name: "多次续约才成功",
-		//},
-		//{
+		// },
+		// {
 		//	name: "续约都失败",
-		//},
-		//{
+		// },
+		// {
 		//	name: "续约超时",
-		//},
-		//{
+		// },
+		// {
 		//	name: "续约时，任务状态由抢占变为非抢占状态",
-		//},
+		// },
 	}
 
 	for _, tc := range testCases {

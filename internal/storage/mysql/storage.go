@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ecodeclub/ecron/internal/errs"
+	"github.com/ecodeclub/ecron/internal/storage"
+	"github.com/ecodeclub/ecron/internal/task"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/gotomicro/ecron/internal/errs"
-	"github.com/gotomicro/ecron/internal/storage"
-	"github.com/gotomicro/ecron/internal/task"
-	"github.com/gotomicro/ekit/bean/option"
-	"github.com/gotomicro/eorm"
+	"github.com/ecodeclub/ekit/bean/option"
+	"github.com/ecodeclub/eorm"
 )
 
 type Storage struct {
@@ -31,7 +31,7 @@ type Storage struct {
 }
 
 func NewMysqlStorage(dsn string, opt ...option.Option[Storage]) (*Storage, error) {
-	//db, err := eorm.Open("mysql", dsn, eorm.DBWithMiddlewares(querylog.NewBuilder().Build()))
+	// db, err := eorm.Open("mysql", dsn, eorm.DBWithMiddlewares(querylog.NewBuilder().Build()))
 	db, err := eorm.Open("mysql", dsn)
 	if err != nil {
 		return nil, errs.NewCreateStorageError(err)

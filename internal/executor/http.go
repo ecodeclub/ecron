@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gotomicro/ecron/internal/task"
+	"github.com/ecodeclub/ecron/internal/task"
 )
 
 type HttpExec struct{}

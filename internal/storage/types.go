@@ -2,49 +2,24 @@ package storage
 
 import (
 	"context"
-
 	"github.com/ecodeclub/ecron/internal/task"
+	"time"
 )
-
-type EventType string
-
-const (
-	// EventTypePreempted 抢占了一个任务
-	EventTypePreempted = "preempted"
-	// EventTypeDeleted 某一个任务被删除了
-	EventTypeDeleted   = "deleted"
-	EventTypeCreated   = "created"
-	EventTypeRunnable  = "runnable"
-	EventTypeEnd       = "end"
-	EventTypeDiscarded = "discarded"
-
-	Stop = "stop"
-)
-
-type Storager interface {
-	// Events
-	// ctx 结束的时候，Storage 也要结束
-	// 实现者需要处理 taskEvents
-	Events(ctx context.Context, taskEvents <-chan task.Event) (<-chan Event, error)
-	TaskDAO
-}
 
 type TaskDAO interface {
-	Get(ctx context.Context, taskId int64) (*task.Task, error)
-	Add(ctx context.Context, t *task.Task) (int64, error)
-	AddExecution(ctx context.Context, taskId int64) (int64, error)
-	Update(ctx context.Context, t *task.Task) error
-	CompareAndUpdateTaskStatus(ctx context.Context, taskId int64, old, new string) error
-	CompareAndUpdateTaskExecutionStatus(ctx context.Context, taskId int64, old, new string) error
-	Delete(ctx context.Context, taskId int64) error
+	// Get 获取一个任务
+	Get(ctx context.Context) (task.Task, error)
+	// Add 添加任务
+	Add(ctx context.Context, t task.Task) error
+	// Release 释放任务
+	Release(ctx context.Context, t task.Task) error
+	// Stop 停止任务
+	Stop(ctx context.Context, id int64) error
+	UpdateNextTime(ctx context.Context, id int64, next time.Time) error
+	UpdateUtime(ctx context.Context, id int64) error
 }
 
-type Event struct {
-	Type EventType
-	Task *task.Task
-}
-
-type Status struct {
-	ExpectStatus string
-	UseStatus    string
+// HistoryDAO 任务执行历史
+type HistoryDAO interface {
+	Add(ctx context.Context, t task.Task, status int) error
 }

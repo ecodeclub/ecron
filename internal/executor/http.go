@@ -1,54 +1,38 @@
 package executor
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"github.com/ecodeclub/ecron/internal/task"
 	"log"
 	"net/http"
-
-	"github.com/ecodeclub/ecron/internal/task"
 )
 
-type HttpExec struct{}
-
-type RequestConf struct {
-	Url     string
-	Body    string
-	Header  string
-	Timeout int64
+type HttpExecutor struct {
 }
 
-func NewHttpExec() *HttpExec {
-	return &HttpExec{}
+func (h *HttpExecutor) Name() string {
+	return "HTTP"
 }
 
-func (h *HttpExec) Execute(t *task.Task) <-chan task.Event {
-	te := make(chan task.Event)
-	err := h.req(t.Parameters)
-	taskEvent := task.Event{Task: *t, Type: task.EventTypeFailed}
-	if err == nil {
-		taskEvent.Type = task.EventTypeSuccess
-	}
-	go func() {
-		select {
-		case te <- taskEvent:
-			log.Println("task status update after execute")
-		}
-	}()
-
-	return te
-}
-
-func (h *HttpExec) req(config string) error {
-	req := &RequestConf{}
-	err := json.Unmarshal([]byte(config), req)
+func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
+	var req HttpCfg
+	err := json.Unmarshal([]byte(t.Cfg), &req)
 	if err != nil {
+		log.Println("任务配置信息有误")
 		return err
+	}
+	if req.Method != http.MethodGet {
+		return errors.New("任务配置信息有误，不是GET方法")
 	}
 	resp, err := http.Get(req.Url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	log.Println("request status: ", resp.Status)
+	// 怎么处理resp
+	log.Println(resp)
+
 	return nil
 }

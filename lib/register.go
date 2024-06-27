@@ -9,13 +9,13 @@ import (
 )
 
 type LocalRegister struct {
-	exec *executor.LocalExecutor
+	Exec *executor.LocalExecutor
 	dao  storage.TaskDAO
 }
 
 func NewLocalRegister(dao storage.TaskDAO) *LocalRegister {
 	e := executor.NewLocalExecutor()
-	return &LocalRegister{exec: e, dao: dao}
+	return &LocalRegister{Exec: e, dao: dao}
 }
 
 func (l *LocalRegister) RegisterTask(ctx context.Context, name string, cron string, fn func(ctx context.Context, t task.Task) error) error {
@@ -30,6 +30,6 @@ func (l *LocalRegister) RegisterTask(ctx context.Context, name string, cron stri
 		return err
 	}
 	// 向执行器注册任务
-	l.exec.RegisterFunc(name, fn)
+	l.Exec.RegisterFunc(name, fn)
 	return nil
 }

@@ -11,7 +11,7 @@ type GormHistoryDAO struct {
 	db *gorm.DB
 }
 
-func NewHistory(db *gorm.DB) *GormHistoryDAO {
+func NewGormHistoryDAO(db *gorm.DB) *GormHistoryDAO {
 	return &GormHistoryDAO{db: db}
 }
 

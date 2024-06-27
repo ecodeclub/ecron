@@ -14,7 +14,7 @@ type GormTaskDAO struct {
 	refreshInterval time.Duration
 }
 
-func NewDAO(db *gorm.DB, batchSize int, refreshInterval time.Duration) *GormTaskDAO {
+func NewGormTaskDAO(db *gorm.DB, batchSize int, refreshInterval time.Duration) *GormTaskDAO {
 	return &GormTaskDAO{db: db, batchSize: batchSize, refreshInterval: refreshInterval}
 }
 

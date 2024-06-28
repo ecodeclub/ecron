@@ -21,9 +21,10 @@ func NewLocalRegister(dao storage.TaskDAO) *LocalRegister {
 func (l *LocalRegister) RegisterTask(ctx context.Context, name string, cron string, fn func(ctx context.Context, t task.Task) error) error {
 	// 先向数据库插入一条记录
 	err := l.dao.Add(ctx, task.Task{
-		Name:    name,
-		CronExp: cron,
-		Type:    task.TypeLocal,
+		Name:     name,
+		CronExp:  cron,
+		Type:     task.TypeLocal,
+		Executor: l.Exec.Name(),
 	})
 	if err != nil {
 		log.Println("注册任务失败", err)

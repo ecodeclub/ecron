@@ -13,8 +13,8 @@ create table if not EXISTS `task_info`
     status            int,
     cfg               text          not null comment '执行配置',
     next_exec_time    bigint comment '下一次执行时间',
-    create_time       bigint        not null,
-    update_time       bigint        not null
+    ctime       bigint        not null,
+    utime       bigint        not null
     )
     comment '任务信息';
 
@@ -22,8 +22,9 @@ create table if not EXISTS `task_exec_history`
 (
     id                int auto_increment primary key,
     tid               int not null,
-    create_time       bigint        not null,
-    update_time       bigint        not null
+    status            int,
+    ctime       bigint        not null,
+    utime       bigint        not null
     )
     comment '任务执行历史';
 

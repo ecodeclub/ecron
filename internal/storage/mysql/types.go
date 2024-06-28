@@ -15,6 +15,10 @@ type TaskInfo struct {
 	Utime        int64
 }
 
+func (TaskInfo) TableName() string {
+	return "task_info"
+}
+
 const (
 	TaskTypeLocal = "Local_Task"
 	TaskTypeHttp  = "HTTP_Task"
@@ -35,4 +39,8 @@ type TaskExecHistory struct {
 	Status int
 	Ctime  int64
 	Utime  int64
+}
+
+func (TaskExecHistory) TableName() string {
+	return "task_exec_history"
 }

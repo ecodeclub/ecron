@@ -39,9 +39,12 @@ func (t Type) String() string {
 
 var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
-func (t Task) NextTime() time.Time {
-	s, _ := parser.Parse(t.CronExp)
-	return s.Next(time.Now())
+func (t Task) NextTime() (time.Time, error) {
+	s, err := parser.Parse(t.CronExp)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return s.Next(time.Now()), nil
 }
 
 type TaskExecRecord struct {

@@ -105,7 +105,10 @@ func (p *PreemptScheduler) after(t task.Task, status int) {
 }
 
 func (p *PreemptScheduler) setNextTime(t task.Task) error {
-	next := t.NextTime()
+	next, err := t.NextTime()
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	defer cancel()
 	if next.IsZero() {

@@ -52,6 +52,7 @@ func (g *GormTaskDAO) UpdateNextTime(ctx context.Context, id int64, next time.Ti
 func (g *GormTaskDAO) Add(ctx context.Context, t task.Task) error {
 	te := g.toEntity(t)
 	now := time.Now().UnixMilli()
+	te.Status = TaskStatusWaiting
 	te.Ctime = now
 	te.Utime = now
 	return g.db.WithContext(ctx).Create(&te).Error
@@ -65,7 +66,7 @@ func (g *GormTaskDAO) Get(ctx context.Context) (task.Task, error) {
 		var tasks []TaskInfo
 		// 一次取一批
 		err := g.db.WithContext(ctx).Model(&TaskInfo{}).
-			Where("(status = ? AND exec_exec_time <= ?) OR (status = ? AND utime < ?)",
+			Where("(status = ? AND next_exec_time <= ?) OR (status = ? AND utime < ?)",
 				TaskStatusWaiting, now, TaskStatusRunning, t).
 			Find(&tasks).Limit(g.batchSize).Error
 		if err != nil {
@@ -73,13 +74,19 @@ func (g *GormTaskDAO) Get(ctx context.Context) (task.Task, error) {
 			return task.Task{}, err
 		}
 		// 随机抢一个任务, i 的取值范围 [0, len(tasks))
-		i := rand.Intn(len(tasks))
+		var i int
+		if len(tasks) <= 1 {
+			i = 0
+		} else {
+			i = rand.Intn(len(tasks))
+		}
+
 		ta := tasks[i]
 		res := g.db.WithContext(ctx).Model(&TaskInfo{}).
 			Where("id = ? AND version = ?", ta.ID, ta.version).
 			Updates(map[string]interface{}{
 				"status":  TaskStatusRunning,
-				"utime":   now,
+				"utime":   now.UnixMilli(),
 				"version": ta.version + 1,
 			})
 

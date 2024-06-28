@@ -12,6 +12,10 @@ import (
 type HttpExecutor struct {
 }
 
+func NewHttpExecutor() *HttpExecutor {
+	return &HttpExecutor{}
+}
+
 func (h *HttpExecutor) Name() string {
 	return "HTTP"
 }

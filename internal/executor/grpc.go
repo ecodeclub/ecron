@@ -3,7 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"github.com/ecodeclub/ecron/internal/storage/mysql"
+	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/ecodeclub/ecron/pkg/grpc/generic"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -14,11 +14,15 @@ import (
 type GrpcExecutor struct {
 }
 
+func NewGrpcExecutor() *GrpcExecutor {
+	return &GrpcExecutor{}
+}
+
 func (g *GrpcExecutor) Name() string {
 	return "GRPC"
 }
 
-func (g *GrpcExecutor) Run(ctx context.Context, t mysql.TaskInfo) error {
+func (g *GrpcExecutor) Run(ctx context.Context, t task.Task) error {
 	var req GrpcCfg
 	err := json.Unmarshal([]byte(t.Cfg), &req)
 	if err != nil {

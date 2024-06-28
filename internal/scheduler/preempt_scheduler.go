@@ -28,8 +28,10 @@ func NewPreemptScheduler(dao storage.TaskDAO, history storage.HistoryDAO, refres
 	}
 }
 
-func (p *PreemptScheduler) RegisterExecutor(exec executor.Executor) {
-	p.executors[exec.Name()] = exec
+func (p *PreemptScheduler) RegisterExecutor(execs ...executor.Executor) {
+	for _, exec := range execs {
+		p.executors[exec.Name()] = exec
+	}
 }
 
 func (p *PreemptScheduler) Schedule(ctx context.Context) error {

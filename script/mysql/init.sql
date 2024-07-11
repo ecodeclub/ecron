@@ -4,19 +4,19 @@ USE ecron
 
 create table if not EXISTS `task_info`
 (
-    id                int auto_increment primary key,
+    id                bigint auto_increment primary key,
     name              varchar(128)  not null comment '任务名称',
     type              varchar(32)   not null comment '任务类型',
     cron              varchar(32)   not null comment 'cron表达式',
     executor          varchar(128)  not null comment '执行器名称',
-    version           int default 0 not null comment '用于实现乐观锁',
-    status            int,
+    version           integer default 0 not null comment '用于实现乐观锁',
+    status            tinyint,
     cfg               text          not null comment '执行配置',
     next_exec_time    bigint comment '下一次执行时间',
     ctime       bigint        not null,
-    utime       bigint        not null
+    utime      bigint        not null
     )
-    comment '任务信息';
+    comment '任务utime信息';
 
 create table if not EXISTS `task_exec_history`
 (

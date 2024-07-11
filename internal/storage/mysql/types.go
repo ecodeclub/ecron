@@ -7,8 +7,8 @@ type TaskInfo struct {
 	Type         string
 	Cron         string
 	Executor     string
-	version      int64
-	Status       int
+	Version      int
+	Status       int8
 	Cfg          string
 	NextExecTime int64
 	Ctime        int64
@@ -20,23 +20,17 @@ func (TaskInfo) TableName() string {
 }
 
 const (
-	TaskTypeLocal = "Local_Task"
-	TaskTypeHttp  = "HTTP_Task"
-	TaskTypeGrpc  = "GRPC_Task"
-)
-
-const (
-	TaskStatusWaiting  = 1 // 等待调度
-	TaskStatusRunning  = 2 // 正在执行
-	TaskStatusPaused   = 3 // 任务中断
-	TaskStatusFinished = 4 // 任务结束
+	TaskStatusWaiting  = int8(1) // 等待调度
+	TaskStatusRunning  = int8(2) // 正在执行
+	TaskStatusPaused   = int8(3) // 任务中断
+	TaskStatusFinished = int8(4) // 任务结束
 )
 
 // TaskExecHistory 任务执行记录
 type TaskExecHistory struct {
 	ID     int64 `gorm:"primary_key;auto_increment"`
 	Tid    int64
-	Status int
+	Status uint8
 	Ctime  int64
 	Utime  int64
 }

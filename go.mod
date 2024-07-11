@@ -3,11 +3,13 @@ module github.com/ecodeclub/ecron
 go 1.21
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang/protobuf v1.5.4
 	github.com/jhump/protoreflect v1.16.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.9.0
+	go.uber.org/mock v0.4.0
 	golang.org/x/sync v0.6.0
 	google.golang.org/grpc v1.64.0
 	gorm.io/driver/mysql v1.5.7

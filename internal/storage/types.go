@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
+//go:generate mockgen -source=./types.go -package=daomocks -destination=./mocks/dao.mock.go
+
 type TaskDAO interface {
-	// Get 获取一个任务
-	Get(ctx context.Context) (task.Task, error)
+	// Preempt 获取一个任务
+	Preempt(ctx context.Context) (task.Task, error)
 	// Add 添加任务
 	Add(ctx context.Context, t task.Task) error
 	// Release 释放任务
@@ -19,7 +21,8 @@ type TaskDAO interface {
 	UpdateUtime(ctx context.Context, id int64) error
 }
 
+
 // HistoryDAO 任务执行历史
 type HistoryDAO interface {
-	Add(ctx context.Context, t task.Task, status int) error
+	Add(ctx context.Context, id int64, status task.ExecStatus) error
 }

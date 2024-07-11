@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/ecodeclub/ecron/internal/task"
-	"github.com/ecodeclub/ecron/pkg/grpc/generic"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"log"
-	"strconv"
 )
 
 type GrpcExecutor struct {
@@ -28,23 +23,6 @@ func (g *GrpcExecutor) Run(ctx context.Context, t task.Task) error {
 	if err != nil {
 		return err
 	}
-	// 怎么发起一个grpc调用
-	conn, err := grpc.NewClient(":"+strconv.Itoa(req.Port),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	defer conn.Close()
-	if err != nil {
-		log.Println("grpc dial err:", err)
-	}
-	client := generic.NewGpcGenericClient(req.ServiceName, conn)
-	if err := client.Init(ctx); err != nil {
-		return err
-	}
-	resp, err := client.InvokeUnaryJson(ctx, req.Method, map[string]any{})
-	if err != nil {
-		panic(err)
-	}
-
-	// 处理resp
-	log.Println(resp)
-	return nil
+	// TODO: 解决 grpc 泛化调用
+	panic("implement me")
 }

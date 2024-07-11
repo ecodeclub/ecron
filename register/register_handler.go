@@ -85,6 +85,7 @@ type HttpTaskReq struct {
 	Cron   string `json:"cron"`
 	Method string `json:"method"`
 	Url    string `json:"url"`
+	Params string `json:"params"`
 }
 
 type GrpcTaskReq struct {
@@ -92,4 +93,5 @@ type GrpcTaskReq struct {
 	Cron        string `json:"cron"`
 	ServiceName string `json:"service_name"`
 	Method      string `json:"method"`
+	Params      string `json:"params"`
 }

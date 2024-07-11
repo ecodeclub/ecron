@@ -6,7 +6,7 @@ import (
 	"github.com/ecodeclub/ecron/internal/storage"
 	"github.com/ecodeclub/ecron/internal/task"
 	"golang.org/x/sync/semaphore"
-	"log"
+	"log/slog"
 	"time"
 )
 
@@ -36,71 +36,85 @@ func (p *PreemptScheduler) RegisterExecutor(execs ...executor.Executor) {
 
 func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 	for {
-		if ctx.Err() != nil {
-			log.Println("退出调度")
-			return ctx.Err()
-		}
 		err := p.limiter.Acquire(ctx, 1)
 		if err != nil {
-			time.Sleep(time.Second)
+			return err
 		}
+
 		ctx2, cancel := context.WithTimeout(ctx, time.Second*3)
-		t, err := p.dao.Get(ctx2)
+		t, err := p.dao.Preempt(ctx2)
 		cancel()
 		if err != nil {
 			continue
 		}
 		exec, ok := p.executors[t.Executor]
 		if !ok {
-			log.Println("找不任务的执行器", t.ID, t.Executor)
+			//slog.Error("找不任务的执行器", "taskID",t.ID, t.Executor)
+			continue
 		}
-		go func() {
-			// 执行任务
-			ticker := time.NewTicker(p.refreshInterval)
-			p.before(t, ticker)
-			err := exec.Run(ctx, t)
-			ticker.Stop()
-			if err != nil {
-				p.after(t, task.TaskHistoryStatusFail)
-				log.Println("任务执行出错", err, t.ID)
-			} else {
-				p.after(t, task.TaskHistoryStatusSuccess)
-			}
-			p.limiter.Release(1)
-		}()
+
+		go p.doTask(t, exec, ctx)
 		// 更新下一次的执行时间
 		err = p.setNextTime(t)
 		if err != nil {
-			log.Println("更新下一次执行时间出错", err, t.ID)
+			slog.Error("更新下一次执行时间出错", err, t.ID)
 		}
 	}
 }
 
-func (p *PreemptScheduler) before(t task.Task, ticker *time.Ticker) {
-	// 执行前，更新一下任务执行历史，
-	// 并且开启续约
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-	p.history.Add(ctx, t, task.TaskHistoryStatusStart)
-	cancel()
+func (p *PreemptScheduler) doTask(t task.Task, exec executor.Executor, ctx context.Context) {
+	p.recordExecHistory(t.ID, task.TaskExecStatusStarted)
+	ctx2, cancel2 := context.WithCancel(ctx)
+	defer cancel2()
+	ticker := time.NewTicker(p.refreshInterval)
 	go func() {
-		for range ticker.C {
-			// 在这里面续约
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-			p.dao.UpdateUtime(ctx, t.ID)
-			cancel()
+		err := p.refreshTask(ctx2, ticker, t.ID)
+		if err != nil {
+			// 续约失败时，通知用户停止执行任务
+			cancel2()
 		}
 	}()
+	err := exec.Run(ctx2, t)
+	ticker.Stop()
+	if err != nil {
+		p.recordExecHistory(t.ID, task.TaskExecStatusFailed)
+		slog.Error("任务执行出错", err, t.ID)
+	} else {
+		p.recordExecHistory(t.ID, task.TaskHistoryStatusSuccess)
+	}
+
+	p.releaseTask(t)
+	p.limiter.Release(1)
 }
 
-func (p *PreemptScheduler) after(t task.Task, status int) {
-	// 执行完后，更新一下任务执行历史，
-	// 以及释放任务
+func (p *PreemptScheduler) recordExecHistory(id int64, status task.ExecStatus) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	_ = p.history.Add(ctx, id, status)
+	cancel()
+}
+
+func (p *PreemptScheduler) refreshTask(ctx context.Context, ticker *time.Ticker, id int64) error {
+	for {
+		select {
+		case <-ticker.C:
+			ctx2, cancel := context.WithTimeout(context.Background(), time.Second*3)
+			err := p.dao.UpdateUtime(ctx2, id)
+			cancel()
+			if err != nil {
+				return err
+			}
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (p *PreemptScheduler) releaseTask(t task.Task) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	defer cancel()
-	p.history.Add(ctx, t, status)
 	err := p.dao.Release(ctx, t)
 	if err != nil {
-		log.Println("释放任务失败", err, t.ID)
+		slog.Error("释放任务失败", err, t.ID)
 	}
 }
 
@@ -114,7 +128,7 @@ func (p *PreemptScheduler) setNextTime(t task.Task) error {
 	if next.IsZero() {
 		err := p.dao.Stop(ctx, t.ID)
 		if err != nil {
-			log.Println("停止任务调度失败", t.ID, err)
+			//slog.Error("停止任务调度失败", t.ID, err)
 		}
 		return err
 	}

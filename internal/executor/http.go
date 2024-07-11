@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/ecodeclub/ecron/internal/task"
-	"log"
+	"log/slog"
 	"net/http"
 )
 
@@ -24,7 +25,7 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
 	var req HttpCfg
 	err := json.Unmarshal([]byte(t.Cfg), &req)
 	if err != nil {
-		log.Println("任务配置信息有误")
+		slog.Error("任务配置信息错误", err)
 		return err
 	}
 	if req.Method != http.MethodGet {
@@ -35,8 +36,8 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
 		return err
 	}
 	defer resp.Body.Close()
-	// 怎么处理resp
-	log.Println(resp)
+	// TODO: 处理响应
+	fmt.Println(resp)
 
 	return nil
 }

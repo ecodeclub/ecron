@@ -5,6 +5,7 @@ import (
 	"github.com/ecodeclub/ecron/internal/task"
 )
 
+//go:generate mockgen -source=./types.go -package=executormocks -destination=./mocks/executor.mock.go
 type Executor interface {
 	// Name 执行器的名称
 	Name() string

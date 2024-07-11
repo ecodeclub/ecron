@@ -12,6 +12,7 @@ type Task struct {
 	Executor string
 	Cfg      string
 	CronExp  string
+	Version  int
 	Ctime    time.Time
 	Utime    time.Time
 }
@@ -47,18 +48,22 @@ func (t Task) NextTime() (time.Time, error) {
 	return s.Next(time.Now()), nil
 }
 
-type TaskExecRecord struct {
+type ExecHistory struct {
 	ID     int64
 	Tid    int
-	Status Status
+	Status ExecStatus
 	Ctime  time.Time
 	Utime  time.Time
 }
 
-type Status uint8
+type ExecStatus uint8
 
 const (
-	TaskHistoryStatusStart   = 1 // 开始执行
-	TaskHistoryStatusFail    = 2 // 执行出错
-	TaskHistoryStatusSuccess = 3 // 执行成功
+	TaskExecStatusStarted    = ExecStatus(1) // 开始执行
+	TaskExecStatusFailed     = ExecStatus(2) // 执行出错
+	TaskHistoryStatusSuccess = ExecStatus(3) // 执行成功
 )
+
+func (s ExecStatus) ToUint8() uint8 {
+	return uint8(s)
+}

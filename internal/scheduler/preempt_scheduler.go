@@ -63,7 +63,7 @@ func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 }
 
 func (p *PreemptScheduler) doTask(t task.Task, exec executor.Executor, ctx context.Context) {
-	p.recordExecHistory(t.ID, task.TaskExecStatusStarted)
+	p.recordExecHistory(t.ID, task.ExecStatusStarted)
 	ctx2, cancel2 := context.WithCancel(ctx)
 	defer cancel2()
 	ticker := time.NewTicker(p.refreshInterval)
@@ -77,10 +77,10 @@ func (p *PreemptScheduler) doTask(t task.Task, exec executor.Executor, ctx conte
 	err := exec.Run(ctx2, t)
 	ticker.Stop()
 	if err != nil {
-		p.recordExecHistory(t.ID, task.TaskExecStatusFailed)
+		p.recordExecHistory(t.ID, task.ExecStatusFailed)
 		slog.Error("任务执行出错", err, t.ID)
 	} else {
-		p.recordExecHistory(t.ID, task.TaskHistoryStatusSuccess)
+		p.recordExecHistory(t.ID, task.ExecStatusSuccess)
 	}
 
 	p.releaseTask(t)
@@ -104,7 +104,7 @@ func (p *PreemptScheduler) refreshTask(ctx context.Context, ticker *time.Ticker,
 				return err
 			}
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		}
 	}
 }

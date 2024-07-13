@@ -31,7 +31,7 @@ func TestGormHistoryDAO_Add(t *testing.T) {
 				return mockDB
 			},
 			id:         1,
-			taskStatus: task.TaskExecStatusStarted,
+			taskStatus: task.ExecStatusStarted,
 			wantErr:    nil,
 		},
 		{
@@ -44,7 +44,7 @@ func TestGormHistoryDAO_Add(t *testing.T) {
 				return mockDB
 			},
 			id:         1,
-			taskStatus: task.TaskExecStatusStarted,
+			taskStatus: task.ExecStatusStarted,
 			wantErr:    errors.New("mock db error"),
 		},
 	}

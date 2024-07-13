@@ -2,16 +2,11 @@ package task
 
 import (
 	"errors"
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestName(t *testing.T) {
-	fmt.Println(int64(time.Second.Seconds()))
-}
 
 func TestTask_NextTime(t *testing.T) {
 	testCases := []struct {

@@ -11,6 +11,8 @@ import (
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
 	"golang.org/x/sync/semaphore"
+	"log/slog"
+	"os"
 	"testing"
 	"time"
 )
@@ -49,7 +51,8 @@ func TestPreemptScheduler_setNextTime(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			td, hd, _ := tc.mock(ctrl)
-			s := NewPreemptScheduler(td, hd, tc.refreshInterval, tc.limiter)
+			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+			s := NewPreemptScheduler(td, hd, tc.refreshInterval, tc.limiter, logger)
 			err := s.setNextTime(tc.inTask)
 			assert.Equal(t, tc.wantErr, err)
 		})
@@ -112,7 +115,8 @@ func TestPreemptScheduler_refreshTask(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			td, hd, _ := tc.mock(ctrl)
-			s := NewPreemptScheduler(td, hd, tc.refreshInterval, tc.limiter)
+			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+			s := NewPreemptScheduler(td, hd, tc.refreshInterval, tc.limiter, logger)
 			ticker := time.NewTicker(time.Second)
 			err := s.refreshTask(tc.ctxFn(), ticker, 1)
 			assert.Equal(t, tc.wantErr, err)

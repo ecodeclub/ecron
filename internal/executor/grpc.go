@@ -9,7 +9,7 @@ import (
 type GrpcExecutor struct {
 }
 
-func NewGrpcExecutor() *GrpcExecutor {
+func NewGrpcExecutor() Executor {
 	return &GrpcExecutor{}
 }
 

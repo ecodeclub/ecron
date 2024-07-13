@@ -38,7 +38,9 @@ func (t Type) String() string {
 	}
 }
 
-var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+var parser = cron.NewParser(
+	cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+)
 
 func (t Task) NextTime() (time.Time, error) {
 	s, err := parser.Parse(t.CronExp)
@@ -59,9 +61,9 @@ type ExecHistory struct {
 type ExecStatus uint8
 
 const (
-	TaskExecStatusStarted    = ExecStatus(1) // 开始执行
-	TaskExecStatusFailed     = ExecStatus(2) // 执行出错
-	TaskHistoryStatusSuccess = ExecStatus(3) // 执行成功
+	ExecStatusStarted = ExecStatus(1) // 开始执行
+	ExecStatusFailed  = ExecStatus(2) // 执行出错
+	ExecStatusSuccess = ExecStatus(3) // 执行成功
 )
 
 func (s ExecStatus) ToUint8() uint8 {

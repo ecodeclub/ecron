@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"github.com/ecodeclub/ecron/internal/task"
+	"net/http"
 )
 
 //go:generate mockgen -source=./types.go -package=executormocks -destination=./mocks/executor.mock.go
@@ -15,8 +16,10 @@ type Executor interface {
 }
 
 type HttpCfg struct {
-	Method string `json:"method"`
-	Url    string `json:"url"`
+	Method string      `json:"method"`
+	Url    string      `json:"url"`
+	Header http.Header `json:"header"`
+	Body   string      `json:"body"`
 }
 
 type GrpcCfg struct {

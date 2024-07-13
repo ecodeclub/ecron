@@ -1,20 +1,34 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/ecodeclub/ecron/internal/task"
 	"log/slog"
 	"net/http"
+	"time"
+)
+
+var (
+	ErrTaskExecuteFailed = errors.New("task execute failed")
+	ErrTaskCfg           = errors.New("任务配置信息错误")
+	ErrTaskRequestFailed = errors.New("发起任务执行请求失败")
 )
 
 type HttpExecutor struct {
+	client *http.Client
+	logger *slog.Logger
 }
 
-func NewHttpExecutor() *HttpExecutor {
-	return &HttpExecutor{}
+func NewHttpExecutor(logger *slog.Logger) Executor {
+	return &HttpExecutor{
+		client: &http.Client{
+			Timeout: time.Second * 5,
+		},
+		logger: logger,
+	}
 }
 
 func (h *HttpExecutor) Name() string {
@@ -25,19 +39,27 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
 	var req HttpCfg
 	err := json.Unmarshal([]byte(t.Cfg), &req)
 	if err != nil {
-		slog.Error("任务配置信息错误", err)
-		return err
+		h.logger.Error("任务配置信息错误",
+			slog.Int64("ID", t.ID), slog.String("Cfg", t.Cfg))
+		return ErrTaskCfg
 	}
-	if req.Method != http.MethodGet {
-		return errors.New("任务配置信息有误，不是GET方法")
-	}
-	resp, err := http.Get(req.Url)
+
+	request, err := http.NewRequest(req.Method, req.Url, bytes.NewBuffer([]byte(req.Body)))
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	// TODO: 处理响应
-	fmt.Println(resp)
+	request.Header = req.Header
+
+	resp, err := h.client.Do(request)
+	if err != nil {
+		h.logger.Error("发起任务执行请求失败",
+			slog.Int64("ID", t.ID), slog.Any("error", err))
+		return ErrTaskRequestFailed
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return ErrTaskExecuteFailed
+	}
 
 	return nil
 }

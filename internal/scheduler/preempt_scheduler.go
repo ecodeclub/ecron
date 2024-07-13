@@ -16,15 +16,18 @@ type PreemptScheduler struct {
 	executors       map[string]executor.Executor
 	refreshInterval time.Duration
 	limiter         *semaphore.Weighted
+	logger          *slog.Logger
 }
 
-func NewPreemptScheduler(dao storage.TaskDAO, history storage.HistoryDAO, refreshInterval time.Duration, limiter *semaphore.Weighted) *PreemptScheduler {
+func NewPreemptScheduler(dao storage.TaskDAO, history storage.HistoryDAO,
+	refreshInterval time.Duration, limiter *semaphore.Weighted, logger *slog.Logger) *PreemptScheduler {
 	return &PreemptScheduler{
 		dao:             dao,
 		history:         history,
 		refreshInterval: refreshInterval,
 		limiter:         limiter,
 		executors:       make(map[string]executor.Executor),
+		logger:          logger,
 	}
 }
 
@@ -34,6 +37,7 @@ func (p *PreemptScheduler) RegisterExecutor(execs ...executor.Executor) {
 	}
 }
 
+// TODO: 为这个方法编写集成测试
 func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 	for {
 		err := p.limiter.Acquire(ctx, 1)
@@ -49,20 +53,24 @@ func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 		}
 		exec, ok := p.executors[t.Executor]
 		if !ok {
-			//slog.Error("找不任务的执行器", "taskID",t.ID, t.Executor)
+			p.logger.Error("找不到任务的执行器",
+				slog.Int64("TaskID", t.ID),
+				slog.String("Executor", t.Executor))
 			continue
 		}
 
-		go p.doTask(t, exec, ctx)
+		go p.doTask(ctx, t, exec)
 		// 更新下一次的执行时间
 		err = p.setNextTime(t)
 		if err != nil {
-			slog.Error("更新下一次执行时间出错", err, t.ID)
+			p.logger.Error("更新下一次执行时间出错",
+				slog.Int64("TaskID", t.ID),
+				slog.Any("error", err))
 		}
 	}
 }
 
-func (p *PreemptScheduler) doTask(t task.Task, exec executor.Executor, ctx context.Context) {
+func (p *PreemptScheduler) doTask(ctx context.Context, t task.Task, exec executor.Executor) {
 	p.recordExecHistory(t.ID, task.ExecStatusStarted)
 	ctx2, cancel2 := context.WithCancel(ctx)
 	defer cancel2()
@@ -78,7 +86,9 @@ func (p *PreemptScheduler) doTask(t task.Task, exec executor.Executor, ctx conte
 	ticker.Stop()
 	if err != nil {
 		p.recordExecHistory(t.ID, task.ExecStatusFailed)
-		slog.Error("任务执行出错", err, t.ID)
+		p.logger.Error("任务执行失败",
+			slog.Int64("TaskID", t.ID),
+			slog.Any("error", err))
 	} else {
 		p.recordExecHistory(t.ID, task.ExecStatusSuccess)
 	}
@@ -114,7 +124,9 @@ func (p *PreemptScheduler) releaseTask(t task.Task) {
 	defer cancel()
 	err := p.dao.Release(ctx, t)
 	if err != nil {
-		slog.Error("释放任务失败", err, t.ID)
+		p.logger.Error("释放任务失败",
+			slog.Int64("TaskID", t.ID),
+			slog.Any("error", err))
 	}
 }
 
@@ -128,7 +140,9 @@ func (p *PreemptScheduler) setNextTime(t task.Task) error {
 	if next.IsZero() {
 		err := p.dao.Stop(ctx, t.ID)
 		if err != nil {
-			//slog.Error("停止任务调度失败", t.ID, err)
+			p.logger.Error("停止任务调度失败",
+				slog.Int64("TaskID", t.ID),
+				slog.Any("error", err))
 		}
 		return err
 	}

@@ -67,10 +67,10 @@ func (g *GormTaskDAO) Preempt(ctx context.Context) (task.Task, error) {
 		now := time.Now()
 		// 续约的最晚时间
 		t := now.UnixMilli() - g.refreshInterval.Milliseconds()
-		tasks := make([]TaskInfo, g.batchSize)
+		var tasks []TaskInfo
 		// 一次取一批
 		err := g.db.WithContext(ctx).Model(&TaskInfo{}).
-			Where("status = ? AND next_exec_time <= ?", TaskStatusWaiting, now).
+			Where("status = ? AND next_exec_time <= ?", TaskStatusWaiting, now.UnixMilli()).
 			Or("status = ? AND utime < ?", TaskStatusRunning, t).
 			Find(&tasks).Limit(g.batchSize).Error
 		if err != nil {
@@ -119,11 +119,11 @@ func (g *GormTaskDAO) preemptTask(ctx context.Context, task *TaskInfo) *gorm.DB 
 	// 自增后的version也要返回，释放任务需要用到
 	task.Version = task.Version + 1
 	return g.db.WithContext(ctx).Model(&TaskInfo{}).
-		Where("id = ? AND Version = ?", task.ID, task.Version).
+		Where("id = ? AND version = ?", task.ID, task.Version).
 		Updates(map[string]interface{}{
 			"status":  TaskStatusRunning,
 			"utime":   time.Now().UnixMilli(),
-			"Version": task.Version,
+			"version": task.Version,
 		})
 }
 

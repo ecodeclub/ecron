@@ -37,7 +37,6 @@ func (p *PreemptScheduler) RegisterExecutor(execs ...executor.Executor) {
 	}
 }
 
-// TODO: 为这个方法编写集成测试
 func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 	for {
 		err := p.limiter.Acquire(ctx, 1)

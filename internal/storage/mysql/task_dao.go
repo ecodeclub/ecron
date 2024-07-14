@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/ecodeclub/ecron/internal/task"
 	"gorm.io/gorm"
-	"math/rand"
 	"time"
 )
 
@@ -81,9 +80,9 @@ func (g *GormTaskDAO) Preempt(ctx context.Context) (task.Task, error) {
 		}
 
 		// 随机抢一个任务, i 的取值范围 [0, len(tasks))
-		i := rand.Intn(len(tasks))
+		//i := rand.Intn(len(tasks))
 
-		//i := 0 // 这一句是为了下面测试 res.RowsAffected == 0 而写的
+		i := 0 // 这一句是为了下面测试 res.RowsAffected == 0 而写的
 
 		taskInfo := tasks[i]
 		res := g.preemptTask(ctx, &taskInfo)
@@ -116,15 +115,18 @@ func (g *GormTaskDAO) Preempt(ctx context.Context) (task.Task, error) {
 }
 
 func (g *GormTaskDAO) preemptTask(ctx context.Context, task *TaskInfo) *gorm.DB {
-	// 自增后的version也要返回，释放任务需要用到
-	task.Version = task.Version + 1
-	return g.db.WithContext(ctx).Model(&TaskInfo{}).
+	res := g.db.WithContext(ctx).Model(&TaskInfo{}).
 		Where("id = ? AND version = ?", task.ID, task.Version).
 		Updates(map[string]interface{}{
 			"status":  TaskStatusRunning,
 			"utime":   time.Now().UnixMilli(),
-			"version": task.Version,
+			"version": task.Version + 1,
 		})
+	if res.RowsAffected > 0 {
+		// 抢到了，要返回任务自增后的version
+		task.Version++
+	}
+	return res
 }
 
 func (g *GormTaskDAO) toEntity(t task.Task) TaskInfo {

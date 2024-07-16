@@ -126,39 +126,39 @@ func (mr *MockTaskDAOMockRecorder) UpdateUtime(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateUtime", reflect.TypeOf((*MockTaskDAO)(nil).UpdateUtime), ctx, id)
 }
 
-// MockHistoryDAO is a mock of HistoryDAO interface.
-type MockHistoryDAO struct {
+// MockExecutionDAO is a mock of ExecutionDAO interface.
+type MockExecutionDAO struct {
 	ctrl     *gomock.Controller
-	recorder *MockHistoryDAOMockRecorder
+	recorder *MockExecutionDAOMockRecorder
 }
 
-// MockHistoryDAOMockRecorder is the mock recorder for MockHistoryDAO.
-type MockHistoryDAOMockRecorder struct {
-	mock *MockHistoryDAO
+// MockExecutionDAOMockRecorder is the mock recorder for MockExecutionDAO.
+type MockExecutionDAOMockRecorder struct {
+	mock *MockExecutionDAO
 }
 
-// NewMockHistoryDAO creates a new mock instance.
-func NewMockHistoryDAO(ctrl *gomock.Controller) *MockHistoryDAO {
-	mock := &MockHistoryDAO{ctrl: ctrl}
-	mock.recorder = &MockHistoryDAOMockRecorder{mock}
+// NewMockExecutionDAO creates a new mock instance.
+func NewMockExecutionDAO(ctrl *gomock.Controller) *MockExecutionDAO {
+	mock := &MockExecutionDAO{ctrl: ctrl}
+	mock.recorder = &MockExecutionDAOMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockHistoryDAO) EXPECT() *MockHistoryDAOMockRecorder {
+func (m *MockExecutionDAO) EXPECT() *MockExecutionDAOMockRecorder {
 	return m.recorder
 }
 
-// Add mocks base method.
-func (m *MockHistoryDAO) Add(ctx context.Context, id int64, status task.ExecStatus) error {
+// InsertExecStatus mocks base method.
+func (m *MockExecutionDAO) InsertExecStatus(ctx context.Context, id int64, status task.ExecStatus) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Add", ctx, id, status)
+	ret := m.ctrl.Call(m, "InsertExecStatus", ctx, id, status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// Add indicates an expected call of Add.
-func (mr *MockHistoryDAOMockRecorder) Add(ctx, id, status any) *gomock.Call {
+// InsertExecStatus indicates an expected call of InsertExecStatus.
+func (mr *MockExecutionDAOMockRecorder) InsertExecStatus(ctx, id, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockHistoryDAO)(nil).Add), ctx, id, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertExecStatus", reflect.TypeOf((*MockExecutionDAO)(nil).InsertExecStatus), ctx, id, status)
 }

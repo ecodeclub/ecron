@@ -18,7 +18,7 @@ create table if not EXISTS `task_info`
     )
     comment '任务utime信息';
 
-create table if not EXISTS `task_exec_history`
+create table if not EXISTS `execution`
 (
     id                int auto_increment primary key,
     tid               int not null,

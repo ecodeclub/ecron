@@ -26,16 +26,7 @@ const (
 )
 
 func (t Type) String() string {
-	switch t {
-	case TypeLocal:
-		return "LocalTask"
-	case TypeHttp:
-		return "HttpTask"
-	case TypeGrpc:
-		return "GrpcTask"
-	default:
-		return "UnknownTask"
-	}
+	return string(t)
 }
 
 var parser = cron.NewParser(
@@ -50,7 +41,7 @@ func (t Task) NextTime() (time.Time, error) {
 	return s.Next(time.Now()), nil
 }
 
-type ExecHistory struct {
+type Execution struct {
 	ID     int64
 	Tid    int
 	Status ExecStatus
@@ -61,9 +52,12 @@ type ExecHistory struct {
 type ExecStatus uint8
 
 const (
-	ExecStatusStarted = ExecStatus(1) // 开始执行
-	ExecStatusFailed  = ExecStatus(2) // 执行出错
-	ExecStatusSuccess = ExecStatus(3) // 执行成功
+	ExecStatusUnknown ExecStatus = iota
+	ExecStatusStarted
+	ExecStatusSuccess
+	ExecStatusFailed
+	ExecStatusDeadlineExceeded
+	ExecStatusCancelled
 )
 
 func (s ExecStatus) ToUint8() uint8 {

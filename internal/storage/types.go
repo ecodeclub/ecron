@@ -21,8 +21,7 @@ type TaskDAO interface {
 	UpdateUtime(ctx context.Context, id int64) error
 }
 
-
-// HistoryDAO 任务执行历史
-type HistoryDAO interface {
-	Add(ctx context.Context, id int64, status task.ExecStatus) error
+// ExecutionDAO 任务执行情况
+type ExecutionDAO interface {
+	InsertExecStatus(ctx context.Context, id int64, status task.ExecStatus) error
 }

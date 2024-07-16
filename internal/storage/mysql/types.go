@@ -26,8 +26,8 @@ const (
 	TaskStatusFinished = int8(4) // 任务结束
 )
 
-// TaskExecHistory 任务执行记录
-type TaskExecHistory struct {
+// Execution 任务执行记录
+type Execution struct {
 	ID     int64 `gorm:"primary_key;auto_increment"`
 	Tid    int64
 	Status uint8
@@ -35,6 +35,6 @@ type TaskExecHistory struct {
 	Utime  int64
 }
 
-func (TaskExecHistory) TableName() string {
-	return "task_exec_history"
+func (Execution) TableName() string {
+	return "execution"
 }

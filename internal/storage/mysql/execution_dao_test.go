@@ -3,7 +3,6 @@ package mysql
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/stretchr/testify/assert"
@@ -13,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestGormHistoryDAO_Add(t *testing.T) {
+func TestGormExecutionDAO_InsertExecStatus(t *testing.T) {
 	testCase := []struct {
 		name       string
 		sqlMock    func(t *testing.T) *sql.DB
@@ -22,11 +21,11 @@ func TestGormHistoryDAO_Add(t *testing.T) {
 		wantErr    error
 	}{
 		{
-			name: "插入成功",
+			name: "启动任务，insert一条记录",
 			sqlMock: func(t *testing.T) *sql.DB {
 				mockDB, mock, err := sqlmock.New()
 				require.NoError(t, err)
-				mock.ExpectExec("INSERT INTO `task_exec_history` .*").
+				mock.ExpectExec("INSERT INTO `execution` .* ON DUPLICATE KEY UPDATE").
 					WillReturnResult(sqlmock.NewResult(1, 1))
 				return mockDB
 			},
@@ -35,17 +34,17 @@ func TestGormHistoryDAO_Add(t *testing.T) {
 			wantErr:    nil,
 		},
 		{
-			name: "插入失败",
+			name: "任务执行成功，更新执行记录",
 			sqlMock: func(t *testing.T) *sql.DB {
 				mockDB, mock, err := sqlmock.New()
 				require.NoError(t, err)
-				mock.ExpectExec("INSERT INTO `task_exec_history` .*").
-					WillReturnError(errors.New("mock db error"))
+				mock.ExpectExec("INSERT INTO `execution` .* ON DUPLICATE KEY UPDATE").
+					WillReturnResult(sqlmock.NewResult(1, 1))
 				return mockDB
 			},
 			id:         1,
-			taskStatus: task.ExecStatusStarted,
-			wantErr:    errors.New("mock db error"),
+			taskStatus: task.ExecStatusSuccess,
+			wantErr:    nil,
 		},
 	}
 	for _, tc := range testCase {
@@ -59,8 +58,8 @@ func TestGormHistoryDAO_Add(t *testing.T) {
 				SkipDefaultTransaction: true,
 			})
 			require.NoError(t, err)
-			dao := NewGormHistoryDAO(db)
-			err = dao.Add(context.Background(), tc.id, tc.taskStatus)
+			dao := NewGormExecutionDAO(db)
+			err = dao.InsertExecStatus(context.Background(), tc.id, tc.taskStatus)
 			assert.Equal(t, tc.wantErr, err)
 		})
 	}

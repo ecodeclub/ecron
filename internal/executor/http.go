@@ -4,17 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"github.com/ecodeclub/ecron/internal/errs"
 	"github.com/ecodeclub/ecron/internal/task"
 	"log/slog"
 	"net/http"
 	"time"
-)
-
-var (
-	ErrTaskExecuteFailed = errors.New("task execute failed")
-	ErrTaskCfg           = errors.New("任务配置信息错误")
-	ErrTaskRequestFailed = errors.New("发起任务执行请求失败")
 )
 
 type HttpExecutor struct {
@@ -41,7 +35,7 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
 	if err != nil {
 		h.logger.Error("任务配置信息错误",
 			slog.Int64("ID", t.ID), slog.String("Cfg", t.Cfg))
-		return ErrTaskCfg
+		return errs.ErrWrongTaskCfg
 	}
 
 	request, err := http.NewRequest(req.Method, req.Url, bytes.NewBuffer([]byte(req.Body)))
@@ -54,12 +48,19 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task) error {
 	if err != nil {
 		h.logger.Error("发起任务执行请求失败",
 			slog.Int64("ID", t.ID), slog.Any("error", err))
-		return ErrTaskRequestFailed
+		return errs.ErrRequestExecuteFailed
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return ErrTaskExecuteFailed
+		return errs.ErrExecuteTaskFailed
 	}
 
 	return nil
+}
+
+type HttpCfg struct {
+	Method string      `json:"method"`
+	Url    string      `json:"url"`
+	Header http.Header `json:"header"`
+	Body   string      `json:"body"`
 }

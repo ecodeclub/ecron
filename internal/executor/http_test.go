@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ecodeclub/ecron/internal/errs"
 	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/h2non/gock"
 	"github.com/stretchr/testify/assert"
@@ -33,7 +34,7 @@ dfasfdfads
 }
 `,
 			},
-			wantErr: ErrTaskCfg,
+			wantErr: errs.ErrWrongTaskCfg,
 		},
 		{
 			name: "发起任务请求失败",
@@ -47,7 +48,7 @@ dfasfdfads
 			path:         "/failed",
 			status:       http.StatusBadRequest,
 			reqReturnErr: errors.New("发起任务请求失败"),
-			wantErr:      ErrTaskRequestFailed,
+			wantErr:      errs.ErrRequestExecuteFailed,
 		},
 		{
 			name: "任务执行失败",
@@ -61,7 +62,7 @@ dfasfdfads
 			path:         "/failed",
 			status:       http.StatusBadRequest,
 			reqReturnErr: nil,
-			wantErr:      ErrTaskExecuteFailed,
+			wantErr:      errs.ErrExecuteTaskFailed,
 		},
 		{
 			name: "任务执行成功",

@@ -16,7 +16,7 @@ create table if not EXISTS `task_info`
     ctime       bigint        not null,
     utime      bigint        not null
     )
-    comment '任务utime信息';
+    comment '任务信息';
 
 create table if not EXISTS `execution`
 (
@@ -26,5 +26,6 @@ create table if not EXISTS `execution`
     ctime       bigint        not null,
     utime       bigint        not null
     )
-    comment '任务执行历史';
+    comment '任务执行情况';
 
+CREATE UNIQUE INDEX idx_tid ON `execution` (`tid`);

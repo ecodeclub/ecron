@@ -1,10 +1,11 @@
-package startup
+package integration
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"github.com/ecodeclub/ecron/internal/executor"
+	"github.com/ecodeclub/ecron/internal/integration/startup"
 	"github.com/ecodeclub/ecron/internal/scheduler"
 	"github.com/ecodeclub/ecron/internal/storage/mysql"
 	"github.com/ecodeclub/ecron/internal/task"
@@ -30,11 +31,11 @@ func TestScheduler(t *testing.T) {
 }
 
 func (s *SchedulerTestSuite) SetupSuite() {
-	s.db = InitDB()
+	s.db = startup.InitDB()
 	taskDAO := mysql.NewGormTaskDAO(s.db, 10, time.Second*5)
-	historyDAO := mysql.NewGormHistoryDAO(s.db)
+	historyDAO := mysql.NewGormExecutionDAO(s.db)
 	limiter := semaphore.NewWeighted(100)
-	s.logger = InitLogger()
+	s.logger = startup.InitLogger()
 	s.s = scheduler.NewPreemptScheduler(taskDAO, historyDAO, time.Second*5, limiter, s.logger)
 }
 
@@ -42,7 +43,7 @@ func (s *SchedulerTestSuite) TearDownTest() {
 	// 清空所有数据库，并将自增主键恢复为1
 	err := s.db.Exec("TRUNCATE TABLE `task_info`").Error
 	assert.NoError(s.T(), err)
-	s.db.Exec("TRUNCATE TABLE `task_exec_history`")
+	s.db.Exec("TRUNCATE TABLE `execution`")
 }
 
 func (s *SchedulerTestSuite) TestScheduleLocalTask() {
@@ -124,14 +125,13 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				assert.True(t, taskInfo.Utime > now.UnixMilli())
 				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
 
-				// 验证任务的执行记录不为空，应该有两条记录
-				var history []mysql.TaskExecHistory
+				// 验证任务的执行记录不为空，只有1条记录
+				var execution []mysql.Execution
 				err = s.db.WithContext(ctx).
-					Where("tid = ?", 2).Find(&history).Error
+					Where("tid = ?", 2).Find(&execution).Error
 				require.NoError(t, err)
-				assert.Len(t, history, 2)
-				assert.True(t, history[0].Status == uint8(task.ExecStatusStarted))
-				assert.True(t, history[1].Status == uint8(task.ExecStatusSuccess))
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusSuccess))
 
 			},
 			ctxFn: func(t *testing.T) context.Context {
@@ -178,14 +178,12 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				assert.True(t, taskInfo.Utime > now.UnixMilli())
 				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
 
-				// 验证任务的执行记录不为空，应该有两条记录
-				var history []mysql.TaskExecHistory
+				var history []mysql.Execution
 				err = s.db.WithContext(ctx).
 					Where("tid = ?", 3).Find(&history).Error
 				require.NoError(t, err)
-				assert.Len(t, history, 2)
-				assert.True(t, history[0].Status == uint8(task.ExecStatusStarted))
-				assert.True(t, history[1].Status == uint8(task.ExecStatusFailed))
+				assert.Len(t, history, 1)
+				assert.True(t, history[0].Status == uint8(task.ExecStatusFailed))
 			},
 			ctxFn: func(t *testing.T) context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -233,14 +231,115 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				assert.True(t, taskInfo.Utime > now.UnixMilli())
 				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
 
-				// 验证任务的执行记录不为空，应该有两条记录
-				var history []mysql.TaskExecHistory
+				var history []mysql.Execution
 				err = s.db.WithContext(ctx).
 					Where("tid = ?", 4).Find(&history).Error
 				require.NoError(t, err)
-				assert.Len(t, history, 2)
-				assert.True(t, history[0].Status == uint8(task.ExecStatusStarted))
-				assert.True(t, history[1].Status == uint8(task.ExecStatusSuccess))
+				assert.Len(t, history, 1)
+				assert.True(t, history[0].Status == uint8(task.ExecStatusSuccess))
+
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 1)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "任务执行超时",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:           5,
+					Name:         "Task5",
+					Type:         task.TypeLocal,
+					Cron:         "@every 10s",
+					Executor:     local.Name(),
+					Status:       mysql.TaskStatusRunning,
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					Utime:        now.Add(-6 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+				// 注册执行函数
+				local.RegisterFunc("Task5", func(ctx context.Context, t task.Task) error {
+					fmt.Println("执行任务了", t.ID)
+					return context.DeadlineExceeded
+				})
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 5).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var history []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 5).Find(&history).Error
+				require.NoError(t, err)
+				assert.Len(t, history, 1)
+				assert.True(t, history[0].Status == uint8(task.ExecStatusDeadlineExceeded))
+
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 1)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "任务执行取消",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:           6,
+					Name:         "Task6",
+					Type:         task.TypeLocal,
+					Cron:         "@every 10s",
+					Executor:     local.Name(),
+					Status:       mysql.TaskStatusRunning,
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					// 每5秒执行一次续约，最晚的续约是在5秒前完成
+					Utime: now.Add(-6 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+				local.RegisterFunc("Task6", func(ctx context.Context, t task.Task) error {
+					fmt.Println("执行任务了", t.ID)
+					return context.Canceled
+				})
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				// 验证任务的状态、更新时间和下一次的执行时间
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 6).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var history []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 6).Find(&history).Error
+				require.NoError(t, err)
+				assert.Len(t, history, 1)
+				assert.True(t, history[0].Status == uint8(task.ExecStatusCancelled))
 
 			},
 			ctxFn: func(t *testing.T) context.Context {
@@ -254,7 +353,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 		},
 	}
 	for _, tc := range testCases {
-		// TODO: 待解决：目前只能一次执行一个测试用例，不然抢任务时抢到的可能是同一个
+		// 只能一次执行一个测试用例，不然抢任务时抢到的可能是同一个
 		t.Run(tc.name, func(t *testing.T) {
 			tc.before(t)
 			// 通过context强制让调度器退出

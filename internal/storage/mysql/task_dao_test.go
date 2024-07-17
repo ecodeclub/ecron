@@ -6,12 +6,12 @@ import (
 	"database/sql/driver"
 	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/ecodeclub/ecron/internal/errs"
 	"github.com/ecodeclub/ecron/internal/task"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"strings"
 	"testing"
 	"time"
 )
@@ -44,6 +44,7 @@ func TestGormTaskDAO_Preempt(t *testing.T) {
 		name            string
 		batchSize       int
 		refreshInterval time.Duration
+		randIndex       func(num int) int
 		sqlMock         func(t *testing.T) *sql.DB
 		wantTask        task.Task
 		wantErr         error
@@ -74,12 +75,15 @@ func TestGormTaskDAO_Preempt(t *testing.T) {
 				return mockDB
 			},
 			wantTask: task.Task{},
-			wantErr:  ErrNoExecutableTask,
+			wantErr:  errs.ErrNoExecutableTask,
 		},
 		{
-			name:            "抢到了任务",
+			name:            "randInx返回 0，抢占成功",
 			batchSize:       10,
 			refreshInterval: 10 * time.Second,
+			randIndex: func(num int) int {
+				return 0
+			},
 			sqlMock: func(t *testing.T) *sql.DB {
 				mockDB, mock, err := sqlmock.New()
 				require.NoError(t, err)
@@ -119,9 +123,12 @@ func TestGormTaskDAO_Preempt(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:            "第一个任务抢占失败，但抢占到了下一个",
+			name:            "randInx返回 len(tasks)/2，第一次抢占成功",
 			batchSize:       10,
 			refreshInterval: 10 * time.Second,
+			randIndex: func(num int) int {
+				return 3 / 2
+			},
 			sqlMock: func(t *testing.T) *sql.DB {
 				mockDB, mock, err := sqlmock.New()
 				require.NoError(t, err)
@@ -173,15 +180,226 @@ func TestGormTaskDAO_Preempt(t *testing.T) {
 				}).AddRows(values...)
 
 				mock.ExpectQuery("^SELECT \\* FROM `task_info`").WillReturnRows(rows)
-
-				// 预期第一次抢占失败
-				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(0, 0))
 				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(3, 1))
 				return mockDB
 			},
 			wantTask: task.Task{
 				ID:       3,
 				Name:     "test3",
+				Type:     task.TypeLocal,
+				Executor: "local",
+				Cfg:      "",
+				CronExp:  "*/5 * * * * ?",
+				Version:  11,
+			},
+			wantErr: nil,
+		},
+		{
+			name:            "randInx返回 len(tasks)-1，第一次抢占失败，第二次成功",
+			batchSize:       10,
+			refreshInterval: 10 * time.Second,
+			randIndex: func(num int) int {
+				return 4 - 1
+			},
+			sqlMock: func(t *testing.T) *sql.DB {
+				mockDB, mock, err := sqlmock.New()
+				require.NoError(t, err)
+				values := [][]driver.Value{
+					{
+						5,
+						"test5",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						6,
+						"test6",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						7,
+						"test7",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						8,
+						"test8",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+				}
+				rows := sqlmock.NewRows([]string{
+					"id", "name", "type",
+					"cron", "executor", "Version", "taskStatus", "cfg",
+					"next_exec_time", "ctime", "utime",
+				}).AddRows(values...)
+
+				mock.ExpectQuery("^SELECT \\* FROM `task_info`").WillReturnRows(rows)
+
+				// 预期第一次抢占失败
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(5, 1))
+				return mockDB
+			},
+			wantTask: task.Task{
+				ID:       5,
+				Name:     "test5",
+				Type:     task.TypeLocal,
+				Executor: "local",
+				Cfg:      "",
+				CronExp:  "*/5 * * * * ?",
+				Version:  11,
+			},
+			wantErr: nil,
+		},
+		{
+			name:            "第一批全部失败，但抢到了第二批的任务",
+			batchSize:       10,
+			refreshInterval: 10 * time.Second,
+			randIndex: func(num int) int {
+				return 1
+			},
+			sqlMock: func(t *testing.T) *sql.DB {
+				mockDB, mock, err := sqlmock.New()
+				require.NoError(t, err)
+				values1 := [][]driver.Value{
+					{
+						9,
+						"test9",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						10,
+						"test10",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						11,
+						"test11",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+				}
+				rows1 := sqlmock.NewRows([]string{
+					"id", "name", "type",
+					"cron", "executor", "Version", "taskStatus", "cfg",
+					"next_exec_time", "ctime", "utime",
+				}).AddRows(values1...)
+
+				mock.ExpectQuery("^SELECT \\* FROM `task_info`").WillReturnRows(rows1)
+
+				// 第一批全部失败
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(0, 0))
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(0, 0))
+
+				values2 := [][]driver.Value{
+					{
+						12,
+						"test12",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						13,
+						"test13",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+					{
+						14,
+						"test14",
+						task.TypeLocal,
+						"*/5 * * * * ?",
+						"local",
+						10,
+						TaskStatusWaiting,
+						"",
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+						time.Now().UnixMilli(),
+					},
+				}
+				rows2 := sqlmock.NewRows([]string{
+					"id", "name", "type",
+					"cron", "executor", "Version", "taskStatus", "cfg",
+					"next_exec_time", "ctime", "utime",
+				}).AddRows(values2...)
+				mock.ExpectQuery("^SELECT \\* FROM `task_info`").WillReturnRows(rows2)
+				// 第二批第一条成功
+				mock.ExpectExec("UPDATE `task_info`").WillReturnResult(sqlmock.NewResult(13, 1))
+				return mockDB
+			},
+			wantTask: task.Task{
+				ID:       13,
+				Name:     "test13",
 				Type:     task.TypeLocal,
 				Executor: "local",
 				Cfg:      "",
@@ -202,10 +420,13 @@ func TestGormTaskDAO_Preempt(t *testing.T) {
 				SkipDefaultTransaction: true,
 			})
 			require.NoError(t, err)
+
 			dao := NewGormTaskDAO(db, tc.batchSize, tc.refreshInterval)
+			dao.randIndex = tc.randIndex
+
 			res, err := dao.Preempt(context.Background())
 			if err != nil {
-				assert.True(t, strings.Contains(err.Error(), tc.wantErr.Error()))
+				assert.Equal(t, tc.wantErr, err)
 				return
 			}
 			assert.Equal(t, tc.wantTask.ID, res.ID)

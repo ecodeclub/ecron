@@ -29,7 +29,7 @@ const (
 // Execution 任务执行记录
 type Execution struct {
 	ID     int64 `gorm:"primary_key;auto_increment"`
-	Tid    int64
+	Tid    int64 `gorm:"uniqueIndex:idx_tid"`
 	Status uint8
 	Ctime  int64
 	Utime  int64

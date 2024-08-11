@@ -55,15 +55,15 @@ func (mr *MockExecutorMockRecorder) Name() *gomock.Call {
 }
 
 // Run mocks base method.
-func (m *MockExecutor) Run(ctx context.Context, t task.Task) error {
+func (m *MockExecutor) Run(ctx context.Context, t task.Task, eid int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Run", ctx, t)
+	ret := m.ctrl.Call(m, "Run", ctx, t, eid)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockExecutorMockRecorder) Run(ctx, t any) *gomock.Call {
+func (mr *MockExecutorMockRecorder) Run(ctx, t, eid any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockExecutor)(nil).Run), ctx, t)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockExecutor)(nil).Run), ctx, t, eid)
 }

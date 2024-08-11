@@ -2,7 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/ecodeclub/ecron/internal/errs"
 	"github.com/ecodeclub/ecron/internal/executor"
 	"github.com/ecodeclub/ecron/internal/storage"
 	"github.com/ecodeclub/ecron/internal/task"
@@ -64,8 +66,14 @@ func (p *PreemptScheduler) Schedule(ctx context.Context) error {
 }
 
 func (p *PreemptScheduler) doTask(ctx context.Context, t task.Task, exec executor.Executor) {
-	p.markStatus(t.ID, task.ExecStatusStarted)
-	ctx2, cancel2 := context.WithTimeout(ctx, time.Hour)
+	timeout, err := p.getTaskTimeout(t)
+	if err != nil || timeout == 0 {
+		// 尽力去调度一个任务，设置一个默认的执行时间
+		timeout = time.Second * 3
+	}
+
+	eid := p.markStatus(t.ID, task.ExecStatusStarted)
+	ctx2, cancel2 := context.WithTimeout(ctx, timeout)
 	defer cancel2()
 	ticker := time.NewTicker(p.refreshInterval)
 	go func() {
@@ -76,7 +84,7 @@ func (p *PreemptScheduler) doTask(ctx context.Context, t task.Task, exec executo
 		}
 	}()
 
-	err := exec.Run(ctx2, t)
+	err = exec.Run(ctx2, t, eid)
 	ticker.Stop()
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
@@ -92,6 +100,31 @@ func (p *PreemptScheduler) doTask(ctx context.Context, t task.Task, exec executo
 	p.setNextTime(t)
 	p.releaseTask(t)
 	p.limiter.Release(1)
+}
+
+func (p *PreemptScheduler) getTaskTimeout(t task.Task) (time.Duration, error) {
+	switch t.Type {
+	case task.TypeHttp:
+		var cfg executor.HttpCfg
+		err := json.Unmarshal([]byte(t.Cfg), &cfg)
+		if err != nil {
+			p.logger.Error("任务配置信息错误",
+				slog.Int64("ID", t.ID), slog.String("Cfg", t.Cfg))
+			return 0, errs.ErrWrongTaskCfg
+		}
+		return cfg.TaskTimeout, nil
+	case task.TypeLocal:
+		var cfg executor.LocalCfg
+		err := json.Unmarshal([]byte(t.Cfg), &cfg)
+		if err != nil {
+			p.logger.Error("任务配置信息错误",
+				slog.Int64("ID", t.ID), slog.String("Cfg", t.Cfg))
+			return 0, errs.ErrWrongTaskCfg
+		}
+		return cfg.TaskTimeout, nil
+	default:
+		return 0, errs.ErrUnknownTask
+	}
 }
 
 func (p *PreemptScheduler) refreshTask(ctx context.Context, ticker *time.Ticker, id int64) error {
@@ -146,13 +179,15 @@ func (p *PreemptScheduler) setNextTime(t task.Task) {
 	}
 }
 
-func (p *PreemptScheduler) markStatus(tid int64, status task.ExecStatus) {
+func (p *PreemptScheduler) markStatus(tid int64, status task.ExecStatus) int64 {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	defer cancel()
-	err := p.executionDAO.InsertExecStatus(ctx, tid, status)
+	var eid int64
+	eid, err := p.executionDAO.InsertExecStatus(ctx, tid, status)
 	if err != nil {
 		p.logger.Error("记录任务执行失败",
 			slog.Int64("TaskID", tid),
 			slog.Any("error", err))
 	}
+	return eid
 }

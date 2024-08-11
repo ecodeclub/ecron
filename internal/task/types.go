@@ -42,11 +42,12 @@ func (t Task) NextTime() (time.Time, error) {
 }
 
 type Execution struct {
-	ID     int64
-	Tid    int
-	Status ExecStatus
-	Ctime  time.Time
-	Utime  time.Time
+	ID       int64
+	Tid      int
+	Status   ExecStatus
+	Progress uint8
+	Ctime    time.Time
+	Utime    time.Time
 }
 
 type ExecStatus uint8

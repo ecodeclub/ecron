@@ -17,7 +17,7 @@ func (g *GrpcExecutor) Name() string {
 	return "GRPC"
 }
 
-func (g *GrpcExecutor) Run(ctx context.Context, t task.Task) error {
+func (g *GrpcExecutor) Run(ctx context.Context, t task.Task, eid int64) error {
 	var req GrpcCfg
 	err := json.Unmarshal([]byte(t.Cfg), &req)
 	if err != nil {

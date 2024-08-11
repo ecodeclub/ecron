@@ -23,6 +23,7 @@ create table if not EXISTS `execution`
     id                int auto_increment primary key,
     tid               int not null,
     status            int,
+    progress    int,
     ctime       bigint        not null,
     utime       bigint        not null
     )

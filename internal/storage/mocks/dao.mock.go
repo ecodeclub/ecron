@@ -150,15 +150,30 @@ func (m *MockExecutionDAO) EXPECT() *MockExecutionDAOMockRecorder {
 }
 
 // InsertExecStatus mocks base method.
-func (m *MockExecutionDAO) InsertExecStatus(ctx context.Context, id int64, status task.ExecStatus) error {
+func (m *MockExecutionDAO) InsertExecStatus(ctx context.Context, id int64, status task.ExecStatus) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "InsertExecStatus", ctx, id, status)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // InsertExecStatus indicates an expected call of InsertExecStatus.
 func (mr *MockExecutionDAOMockRecorder) InsertExecStatus(ctx, id, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertExecStatus", reflect.TypeOf((*MockExecutionDAO)(nil).InsertExecStatus), ctx, id, status)
+}
+
+// UpdateProgress mocks base method.
+func (m *MockExecutionDAO) UpdateProgress(ctx context.Context, id int64, progress uint8) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateProgress", ctx, id, progress)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateProgress indicates an expected call of UpdateProgress.
+func (mr *MockExecutionDAOMockRecorder) UpdateProgress(ctx, id, progress any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateProgress", reflect.TypeOf((*MockExecutionDAO)(nil).UpdateProgress), ctx, id, progress)
 }

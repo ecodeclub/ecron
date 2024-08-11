@@ -11,5 +11,6 @@ type Executor interface {
 	Name() string
 	// Run 执行任务
 	// ctx 整个调度器的上下文，当有ctx.Done信号时，就要考虑结束任务的执行
-	Run(ctx context.Context, t task.Task) error
+	// eid execution id，将这个传递给任务执行方
+	Run(ctx context.Context, t task.Task, eid int64) error
 }

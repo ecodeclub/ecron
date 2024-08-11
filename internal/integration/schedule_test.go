@@ -2,8 +2,10 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ecodeclub/ecron/internal"
 	"github.com/ecodeclub/ecron/internal/executor"
 	"github.com/ecodeclub/ecron/internal/integration/startup"
 	"github.com/ecodeclub/ecron/internal/scheduler"
@@ -21,9 +23,10 @@ import (
 
 type SchedulerTestSuite struct {
 	suite.Suite
-	db     *gorm.DB
-	s      *scheduler.PreemptScheduler
-	logger *slog.Logger
+	db       *gorm.DB
+	s        *scheduler.PreemptScheduler
+	logger   *slog.Logger
+	reportor *internal.Reportor
 }
 
 func TestScheduler(t *testing.T) {
@@ -33,10 +36,11 @@ func TestScheduler(t *testing.T) {
 func (s *SchedulerTestSuite) SetupSuite() {
 	s.db = startup.InitDB()
 	taskDAO := mysql.NewGormTaskDAO(s.db, 10, time.Second*5)
-	historyDAO := mysql.NewGormExecutionDAO(s.db)
+	executionDAO := mysql.NewGormExecutionDAO(s.db)
 	limiter := semaphore.NewWeighted(100)
 	s.logger = startup.InitLogger()
-	s.s = scheduler.NewPreemptScheduler(taskDAO, historyDAO, time.Second*5, limiter, s.logger)
+	s.s = scheduler.NewPreemptScheduler(taskDAO, executionDAO, time.Second*5, limiter, s.logger)
+	s.reportor = internal.NewReportor(executionDAO, s.logger)
 }
 
 func (s *SchedulerTestSuite) TearDownTest() {
@@ -362,4 +366,325 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 			tc.after(t)
 		})
 	}
+}
+
+func (s *SchedulerTestSuite) TestScheduleHttpTask() {
+	http := executor.NewHttpExecutor(s.logger, s.reportor)
+	s.s.RegisterExecutor(http)
+
+	go func() {
+		startup.StartHttpServer("8080")
+	}()
+	// 等待http server初始化完成
+	time.Sleep(time.Second * 1)
+
+	t := s.T()
+	now := time.Now()
+	testCases := []struct {
+		name   string
+		before func(t *testing.T)
+		after  func(t *testing.T)
+		ctxFn  func(t *testing.T) context.Context
+	}{
+		{
+			name: "找不到任务的执行器",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:       1,
+					Name:     "Task1",
+					Type:     task.TypeHttp,
+					Cron:     "@every 10s",
+					Executor: "non-existed executor",
+					Status:   mysql.TaskStatusWaiting,
+					// 一秒钟前就要执行了
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 1)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "执行任务成功",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:           2,
+					Name:         "Task2",
+					Type:         task.TypeHttp,
+					Cron:         "@every 10s",
+					Executor:     http.Name(),
+					Status:       mysql.TaskStatusWaiting,
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					Cfg: marshal(t, executor.HttpCfg{
+						Url:         "http://localhost:8080/success",
+						TaskTimeout: time.Second * 5,
+					}),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				// 验证任务的状态、更新时间和下一次的执行时间
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 2).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				// 验证任务的执行记录不为空，只有1条记录，以及任务执行进度
+				var execution []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 2).Find(&execution).Error
+				require.NoError(t, err)
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusSuccess))
+				assert.True(t, execution[0].Progress == uint8(100))
+
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 3)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "执行任务失败",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:       3,
+					Name:     "Task3",
+					Type:     task.TypeHttp,
+					Cron:     "@every 10s",
+					Executor: http.Name(),
+					Status:   mysql.TaskStatusWaiting,
+					Cfg: marshal(t, executor.HttpCfg{
+						Url:         "http://localhost:8080/failed",
+						TaskTimeout: time.Second * 5,
+					}),
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				// 验证任务的状态、更新时间和下一次的执行时间
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 3).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var execution []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 3).Find(&execution).Error
+				require.NoError(t, err)
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusFailed))
+				assert.True(t, execution[0].Progress == uint8(10))
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 3)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "抢到了其它节点续约失败的任务，并且执行任务成功",
+			before: func(t *testing.T) {
+				// 先往数据库插入一条任务
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:       4,
+					Name:     "Task4",
+					Type:     task.TypeHttp,
+					Cron:     "@every 10s",
+					Executor: http.Name(),
+					Status:   mysql.TaskStatusRunning,
+					Cfg: marshal(t, executor.HttpCfg{
+						Url:         "http://localhost:8080/success",
+						TaskTimeout: time.Second * 5,
+					}),
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					// 每5秒执行一次续约，最晚的续约是在5秒前完成
+					Utime: now.Add(-6 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				// 验证任务的状态、更新时间和下一次的执行时间
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 4).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var execution []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 4).Find(&execution).Error
+				require.NoError(t, err)
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusSuccess))
+				assert.True(t, execution[0].Progress == uint8(100))
+
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 3)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "任务执行超时",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:       5,
+					Name:     "Task5",
+					Type:     task.TypeHttp,
+					Cron:     "@every 10s",
+					Executor: http.Name(),
+					Status:   mysql.TaskStatusRunning,
+					Cfg: marshal(t, executor.HttpCfg{
+						// 一直返回running状态，最终就是业务执行超时
+						Url:         "http://localhost:8080/running",
+						TaskTimeout: time.Second * 5,
+					}),
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					Utime:        now.Add(-6 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 5).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var execution []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 5).Find(&execution).Error
+				require.NoError(t, err)
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusDeadlineExceeded))
+				assert.True(t, execution[0].Progress == uint8(10))
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 10)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+		{
+			name: "业务方错误",
+			before: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
+					ID:       6,
+					Name:     "Task6",
+					Type:     task.TypeHttp,
+					Cron:     "@every 10s",
+					Executor: http.Name(),
+					Status:   mysql.TaskStatusRunning,
+					Cfg: marshal(t, executor.HttpCfg{
+						Url:         "http://localhost:8080/error",
+						TaskTimeout: time.Second * 3,
+					}),
+					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
+					Utime:        now.Add(-6 * time.Second).UnixMilli(),
+				}).Error
+				require.NoError(t, err)
+			},
+			after: func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+				var taskInfo mysql.TaskInfo
+				err := s.db.WithContext(ctx).Model(&mysql.TaskInfo{}).
+					Where("id = ?", 6).Find(&taskInfo).Error
+				require.NoError(t, err)
+				// 只有任务很快执行完，这个断言才能成立
+				assert.Equal(t, mysql.TaskStatusWaiting, taskInfo.Status)
+				assert.True(t, taskInfo.Utime > now.UnixMilli())
+				assert.True(t, taskInfo.NextExecTime > time.Now().UnixMilli())
+
+				var execution []mysql.Execution
+				err = s.db.WithContext(ctx).
+					Where("tid = ?", 6).Find(&execution).Error
+				require.NoError(t, err)
+				assert.Len(t, execution, 1)
+				assert.True(t, execution[0].Status == uint8(task.ExecStatusFailed))
+				assert.True(t, execution[0].Progress == uint8(0))
+			},
+			ctxFn: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				go func() {
+					time.Sleep(time.Second * 10)
+					cancel()
+				}()
+				return ctx
+			},
+		},
+	}
+	for _, tc := range testCases {
+		// 只能一次执行一个测试用例，不然抢任务时抢到的可能是同一个
+		t.Run(tc.name, func(t *testing.T) {
+			tc.before(t)
+			// 通过context强制让调度器退出
+			err := s.s.Schedule(tc.ctxFn(t))
+			assert.Equal(t, context.Canceled, err)
+			tc.after(t)
+		})
+	}
+}
+
+func marshal(t *testing.T, cfg executor.HttpCfg) string {
+	res, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	return string(res)
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/ecodeclub/ecron/internal/errs"
 	"github.com/ecodeclub/ecron/internal/task"
 	"log/slog"
+	"time"
 )
 
 type LocalExecutor struct {
@@ -27,7 +28,7 @@ func (l *LocalExecutor) Name() string {
 	return "LOCAL"
 }
 
-func (l *LocalExecutor) Run(ctx context.Context, t task.Task) error {
+func (l *LocalExecutor) Run(ctx context.Context, t task.Task, eid int64) error {
 	fn, ok := l.fn[t.Name]
 	if !ok {
 		l.logger.Error("未知执行方法的任务",
@@ -36,4 +37,8 @@ func (l *LocalExecutor) Run(ctx context.Context, t task.Task) error {
 		return errs.ErrUnknownTask
 	}
 	return fn(ctx, t)
+}
+
+type LocalCfg struct {
+	TaskTimeout time.Duration `json:"taskTimeout"`
 }

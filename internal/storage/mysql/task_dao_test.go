@@ -18,9 +18,7 @@ import (
 
 func TestGormTaskDAO_GormReturn(t *testing.T) {
 	db, err := gorm.Open(mysql.Open("root:root@tcp(localhost:13316)/ecron"))
-	if err != nil {
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 	for i := 0; i < 3; i++ {
 		var taskInfo TaskInfo
 		taskInfo.ID = int64(i)

@@ -43,8 +43,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 2,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			statusCode:     http.StatusBadRequest,
@@ -56,8 +55,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 3,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			respBody:       `{"eid":1,"status":"SUCCESS","progress":100}`,
@@ -70,8 +68,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 4,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			respBody:       `{"eid":1,"status":"FAILED","progress":0}`,
@@ -84,8 +81,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 5,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			respBody:       `{"eid":1,"status":"RUNNING","progress":10}`,
@@ -98,8 +94,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 6,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			respBody:       `{"eid":1,"status":"RUNNING","progress":10}`,
@@ -113,8 +108,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 			inTask: task.Task{
 				ID: 7,
 				Cfg: marshal(t, HttpCfg{
-					Method: "GET",
-					Url:    "http://localhost:8080/test_run",
+					Url: "http://localhost:8080/test_run",
 				}),
 			},
 			respBody: `{"eid":1,"status":"RUNNING","progress":10}`,
@@ -131,7 +125,7 @@ func TestHttpExecutor_Run(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
-			gock.New("http://localhost:8080/test_run").
+			gock.New("http://localhost:8080").Post("/test_run").
 				MatchHeader("execution_id", "1").
 				Reply(tc.statusCode).JSON(tc.respBody).SetError(tc.respErr)
 
@@ -172,6 +166,7 @@ func TestHttpExecutor_Explore(t *testing.T) {
 		name         string
 		maxFailCount int
 		inTask       task.Task
+		method       string
 		statusCode   int
 		respBody     string
 		respErr      error
@@ -183,7 +178,7 @@ func TestHttpExecutor_Explore(t *testing.T) {
 			inTask: task.Task{
 				ID: 1,
 				Cfg: marshal(t, HttpCfg{
-					Method:          "GET",
+
 					Url:             "http://localhost:8080/test_explore",
 					ExploreInterval: time.Second,
 				}),
@@ -202,7 +197,6 @@ func TestHttpExecutor_Explore(t *testing.T) {
 			inTask: task.Task{
 				ID: 2,
 				Cfg: marshal(t, HttpCfg{
-					Method:          "GET",
 					Url:             "http://localhost:8080/test_explore",
 					ExploreInterval: time.Second,
 				}),
@@ -222,7 +216,6 @@ func TestHttpExecutor_Explore(t *testing.T) {
 			inTask: task.Task{
 				ID: 3,
 				Cfg: marshal(t, HttpCfg{
-					Method:          "GET",
 					Url:             "http://localhost:8080/test_explore",
 					ExploreInterval: time.Second,
 				}),
@@ -246,7 +239,6 @@ func TestHttpExecutor_Explore(t *testing.T) {
 			inTask: task.Task{
 				ID: 4,
 				Cfg: marshal(t, HttpCfg{
-					Method:          "GET",
 					Url:             "http://localhost:8080/test_explore",
 					ExploreInterval: time.Second,
 				}),
@@ -265,7 +257,6 @@ func TestHttpExecutor_Explore(t *testing.T) {
 			inTask: task.Task{
 				ID: 5,
 				Cfg: marshal(t, HttpCfg{
-					Method:          "GET",
 					Url:             "http://localhost:8080/test_explore",
 					ExploreInterval: time.Second,
 				}),
@@ -282,7 +273,7 @@ func TestHttpExecutor_Explore(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer gock.Off()
-			gock.New("http://localhost:8080/test_explore").
+			gock.New("http://localhost:8080").Get("/test_explore").
 				MatchHeader("execution_id", "1").
 				Reply(tc.statusCode).JSON(tc.respBody).SetError(tc.respErr)
 

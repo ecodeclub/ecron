@@ -25,13 +25,17 @@ type HttpServer struct {
 }
 
 func (u *HttpServer) RegisterRouter(server *gin.Engine) {
-	server.GET("/success", u.Success)
-	server.GET("/failed", u.Fail)
-	server.GET("/error", u.Error)
-	server.GET("/timeout", u.Timeout)
+	server.POST("/success", u.Success) // 一次成功
+	server.POST("/failed", u.Fail)     // 一次失败
+	server.POST("/error", u.Error)     // 业务方错误
+	server.POST("/timeout", u.Timeout) // 业务方超时
+	server.POST("/explore_success", u.ExploreSuccess)
 	server.GET("/explore_success", u.ExploreSuccess)
+	server.POST("/explore_failed", u.ExploreFailed)
 	server.GET("/explore_failed", u.ExploreFailed)
-	server.GET("/running", u.Running)
+	server.POST("/running", u.Running)   // 永远返回执行中
+	server.GET("/running", u.Running)    // 永远返回执行中
+	server.DELETE("/running", u.Running) // 永远返回执行中
 }
 
 func (u *HttpServer) Success(ctx *gin.Context) {
@@ -48,6 +52,7 @@ func (u *HttpServer) ExploreSuccess(ctx *gin.Context) {
 	param := ctx.GetHeader("execution_id")
 	id, _ := strconv.ParseInt(param, 10, 64)
 	if u.count == 0 {
+		// 发起调用
 		ctx.JSON(200, executor.Result{
 			Eid:      id,
 			Status:   executor.StatusRunning,
@@ -55,7 +60,9 @@ func (u *HttpServer) ExploreSuccess(ctx *gin.Context) {
 		})
 		u.count++
 		return
-	} else if u.count == 1 {
+	}
+	// 探查
+	if u.count == 1 {
 		ctx.JSON(200, executor.Result{
 			Eid:      id,
 			Status:   executor.StatusRunning,

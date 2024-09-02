@@ -44,7 +44,7 @@ func (h *HttpExecutor) Run(ctx context.Context, t task.Task, eid int64) (task.Ex
 		return task.ExecStatusFailed, errs.ErrInCorrectConfig
 	}
 
-	result, err := h.queryTaskStatus(cfg, eid)
+	result, err := h.request(http.MethodPost, cfg, eid)
 	if errors.Is(err, errs.ErrRequestTimeout) {
 		h.logger.Error("发起任务请求超时",
 			slog.Int64("execution_id", eid))
@@ -86,7 +86,7 @@ func (h *HttpExecutor) explore(ctx context.Context, ch chan Result, t task.Task,
 			h.cancelExec(cfg, eid)
 			return
 		case <-ticker.C:
-			result, err := h.queryTaskStatus(cfg, eid)
+			result, err := h.request(http.MethodGet, cfg, eid)
 			if err != nil {
 				failCount++
 				continue
@@ -120,18 +120,15 @@ func (h *HttpExecutor) parseCfg(cfg string) (HttpCfg, error) {
 }
 
 func (h *HttpExecutor) cancelExec(cfg HttpCfg, eid int64) {
-	_, err := h.queryTaskStatus(cfg, eid, map[string]any{
-		// 当业务方收到带有 Header cancel=true 的请求时，要停止执行任务
-		"cancel": true,
-	})
+	_, err := h.request(http.MethodDelete, cfg, eid)
 	if err != nil {
 		h.logger.Error("通知业务方停止执行任务失败", slog.Int64("execution_id", eid))
 		return
 	}
 }
 
-func (h *HttpExecutor) queryTaskStatus(cfg HttpCfg, eid int64, header ...map[string]any) (Result, error) {
-	request, err := http.NewRequest(cfg.Method, cfg.Url, bytes.NewBuffer([]byte(cfg.Body)))
+func (h *HttpExecutor) request(method string, cfg HttpCfg, eid int64) (Result, error) {
+	request, err := http.NewRequest(method, cfg.Url, bytes.NewBuffer([]byte(cfg.Body)))
 	if err != nil {
 		return Result{}, err
 	}
@@ -140,11 +137,6 @@ func (h *HttpExecutor) queryTaskStatus(cfg HttpCfg, eid int64, header ...map[str
 		request.Header = make(http.Header)
 	} else {
 		request.Header = cfg.Header
-	}
-	if len(header) > 0 {
-		for k, v := range header[0] {
-			request.Header.Add(k, fmt.Sprintf("%v", v))
-		}
 	}
 	request.Header.Add("execution_id", fmt.Sprintf("%v", eid))
 	request.Header.Add("Content-Type", "application/json")
@@ -167,7 +159,9 @@ func (h *HttpExecutor) queryTaskStatus(cfg HttpCfg, eid int64, header ...map[str
 }
 
 type HttpCfg struct {
-	Method string      `json:"method"`
+	// POST Url 执行任务
+	// GET Url 查询任务的执行状态
+	// DELETE Url 停止执行任务
 	Url    string      `json:"url"`
 	Header http.Header `json:"header"`
 	Body   string      `json:"body"`

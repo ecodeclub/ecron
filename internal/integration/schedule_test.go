@@ -16,7 +16,6 @@ import (
 	"golang.org/x/sync/semaphore"
 	"gorm.io/gorm"
 	"log/slog"
-	"net/http"
 	"testing"
 	"time"
 )
@@ -425,7 +424,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Status:       mysql.TaskStatusWaiting,
 					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/success",
 						TaskTimeout: time.Second * 5,
 					}),
@@ -476,7 +474,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusWaiting,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/failed",
 						TaskTimeout: time.Second * 5,
 					}),
@@ -528,7 +525,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusRunning,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/success",
 						TaskTimeout: time.Second * 5,
 					}),
@@ -582,7 +578,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusRunning,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/timeout",
 						TaskTimeout: time.Second * 5,
 					}),
@@ -634,7 +629,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Status:       mysql.TaskStatusWaiting,
 					NextExecTime: now.Add(-1 * time.Second).UnixMilli(),
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/error",
 						TaskTimeout: time.Second * 5,
 					}),
@@ -683,7 +677,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusWaiting,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/explore_success",
 						TaskTimeout: time.Second * 5,
 						// 每个1秒探查一次
@@ -736,7 +729,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusWaiting,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/explore_failed",
 						TaskTimeout: time.Second * 5,
 						// 每个1秒探查一次
@@ -789,7 +781,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusWaiting,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/running",
 						TaskTimeout: time.Second * 3,
 						// 每个1秒探查一次
@@ -842,7 +833,6 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 					Executor: httpExec.Name(),
 					Status:   mysql.TaskStatusWaiting,
 					Cfg: marshal(t, executor.HttpCfg{
-						Method:      http.MethodGet,
 						Url:         "http://localhost:8080/running",
 						TaskTimeout: time.Minute,
 						// 每个1秒探查一次

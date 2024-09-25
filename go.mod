@@ -6,6 +6,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/ecodeclub/ekit v0.0.9
 	github.com/gin-gonic/gin v1.10.0
+	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.9.0

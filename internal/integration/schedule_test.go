@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sync/semaphore"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"log/slog"
 	"testing"
 	"time"
@@ -33,11 +34,16 @@ func TestScheduler(t *testing.T) {
 
 func (s *SchedulerTestSuite) SetupSuite() {
 	s.db = startup.InitDB()
-	taskDAO := mysql.NewGormTaskDAO(s.db, 10, time.Second*5)
+	s.db.Logger = s.db.Logger.LogMode(logger.Info)
+	//taskDAO := mysql.NewGormTaskDAO(s.db, 10, time.Second*5)
 	executionDAO := mysql.NewGormExecutionDAO(s.db)
-	limiter := semaphore.NewWeighted(100)
+	gormTaskCfgDAO := mysql.NewGormTaskCfgRepository(s.db)
+	limiter := semaphore.NewWeighted(1)
 	s.logger = startup.InitLogger()
-	s.s = scheduler.NewPreemptScheduler(taskDAO, executionDAO, time.Second*5, limiter, s.logger)
+	p := mysql.NewPreempter(s.db, 10, time.Second*5)
+
+	s.s = scheduler.NewPreemptScheduler(executionDAO, time.Second*5, limiter, s.logger, p, gormTaskCfgDAO)
+
 }
 
 func (s *SchedulerTestSuite) TearDownTest() {
@@ -64,6 +70,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				// 先往数据库插入一条任务
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       1,
 					Name:     "Task1",
@@ -97,6 +104,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				// 先往数据库插入一条任务
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           2,
 					Name:         "Task2",
@@ -150,6 +158,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				// 先往数据库插入一条任务
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           3,
 					Name:         "Task3",
@@ -201,6 +210,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 				// 先往数据库插入一条任务
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           4,
 					Name:         "Task4",
@@ -254,6 +264,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           5,
 					Name:         "Task5",
@@ -305,6 +316,7 @@ func (s *SchedulerTestSuite) TestScheduleLocalTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           6,
 					Name:         "Task6",
@@ -388,6 +400,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       1,
 					Name:     "Task1",
@@ -415,6 +428,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           2,
 					Name:         "Task2",
@@ -466,6 +480,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       3,
 					Name:     "Task3",
@@ -517,6 +532,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 				// 先往数据库插入一条任务
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       4,
 					Name:     "Task4",
@@ -570,6 +586,8 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
+				s.db.Where(ctx).Delete(mysql.Execution{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       5,
 					Name:     "Task5",
@@ -620,6 +638,8 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
+				s.db.Where(ctx).Delete(mysql.Execution{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:           6,
 					Name:         "Task6",
@@ -669,6 +689,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       7,
 					Name:     "Task7",
@@ -721,6 +742,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       8,
 					Name:     "Task8",
@@ -773,6 +795,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       9,
 					Name:     "Task9",
@@ -825,6 +848,7 @@ func (s *SchedulerTestSuite) TestScheduleHttpTask() {
 			before: func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				defer cancel()
+				s.db.Where(ctx).Delete(mysql.TaskInfo{})
 				err := s.db.WithContext(ctx).Create(mysql.TaskInfo{
 					ID:       10,
 					Name:     "Task10",

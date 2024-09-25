@@ -62,15 +62,15 @@ func TestHttpClient_HttpMutex(t *testing.T) {
 type MyTask struct {
 }
 
-func (m *MyTask) Execute() (Status, int) {
+func (m *MyTask) Execute(t Task) (Status, int) {
 	return StatusRunning, 10
 }
 
-func (m *MyTask) Status() (Status, int) {
+func (m *MyTask) Status(t Task) (Status, int) {
 	return StatusSuccess, 100
 }
 
-func (m *MyTask) Stop() error {
+func (m *MyTask) Stop(t Task) error {
 	return nil
 }
 

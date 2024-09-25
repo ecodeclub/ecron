@@ -112,11 +112,11 @@ func (c *HttpClient) handleFunc(w http.ResponseWriter, r *http.Request) {
 	var progress int
 	switch r.Method {
 	case http.MethodGet:
-		status, progress = t.Status()
+		status, progress = t.Status(t.Task)
 	case http.MethodPost:
-		status, progress = t.Execute()
+		status, progress = t.Execute(t.Task)
 	case http.MethodDelete:
-		err := t.Stop()
+		err := t.Stop(t.Task)
 		if err != nil {
 			fmt.Fprintf(w, "stop task failed")
 		} else {

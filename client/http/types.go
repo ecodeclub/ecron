@@ -1,9 +1,10 @@
 package http
 
+//go:generate mockgen -source=./types.go -package=taskmocks -destination=./mocks/task.mock.go
 type Task interface {
-	Execute(t Task) (Status, int)
-	Status(t Task) (Status, int)
-	Stop(t Task) error
+	Execute() (Status, int)
+	Status() (Status, int)
+	Stop() error
 	Name() string
 }
 

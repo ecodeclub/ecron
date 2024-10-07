@@ -9,7 +9,7 @@ create table if not EXISTS `task_info`
     type              varchar(32)   not null comment '任务类型',
     cron              varchar(32)   not null comment 'cron表达式',
     executor          varchar(128)  not null comment '执行器名称',
-    version           integer default 0 not null comment '用于实现乐观锁',
+    owner             varchar(64)   not null comment '用于实现乐观锁',
     status            tinyint,
     cfg               text          not null comment '执行配置',
     next_exec_time    bigint comment '下一次执行时间',

@@ -23,3 +23,8 @@ func (r *Registry) Register(tasks ...Task) error {
 	}
 	return nil
 }
+
+func (r *Registry) GetTask(name string) (Task, bool) {
+	t, ok := r.tasks[name]
+	return t, ok
+}

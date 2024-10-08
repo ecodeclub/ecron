@@ -15,7 +15,7 @@ func TestHttpClient_HandleFunc(t *testing.T) {
 	err := r.Register(myTask)
 	require.NoError(t, err)
 
-	cli := NewHttpClient(r, "http://localhost:8080", "http://www.ecron:80", WithPrefix("/aaa/bbb/ccc/"))
+	cli := NewHttpClient(r, WithPrefix("/aaa/bbb/ccc/"))
 	mux := cli.HttpMutex()
 
 	testCases := []struct {

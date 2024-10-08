@@ -14,8 +14,6 @@ const (
 
 type HttpClient struct {
 	registry *Registry
-	host     string // 用户服务器地址，如 http://localhost:8080
-	endpoint string // ecron服务器地址，如 http://www.ecron.com:80
 	prefix   string // 本地监听路由
 	client   *http.Client
 }
@@ -28,11 +26,9 @@ func WithPrefix(prefix string) ClientOption {
 	}
 }
 
-func NewHttpClient(registry *Registry, host string, endpoint string, opts ...ClientOption) *HttpClient {
+func NewHttpClient(registry *Registry, opts ...ClientOption) *HttpClient {
 	c := &HttpClient{
 		registry: registry,
-		host:     host,
-		endpoint: endpoint,
 		client:   http.DefaultClient,
 		prefix:   "/", // 默认监听地址是 /
 	}
@@ -53,13 +49,13 @@ func (c *HttpClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 发起调用 /aaa/bbb/ccc/$task_name
 	name, ok := strings.CutPrefix(r.RequestURI, c.prefix)
 	if !ok {
-		// 不是以 /$prefix 开头
+		// 不是以 $prefix 开头
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "unkonwn uri: %s", r.RequestURI)
 		return
 	}
 
-	t, exist := c.registry.tasks[name]
+	t, exist := c.registry.GetTask(name)
 	if !exist {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprintf(w, "task not found: %s", name)
